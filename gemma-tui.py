@@ -30,7 +30,7 @@ class WordPathCompleter(Completer):
         self.path_completer = PathCompleter(**kwargs)
 
     def get_completions(self, document, complete_event):
-        word_before_cursor = document.get_word_before_cursor(word_before_cursor_re=re.compile(r'[^\s]+'))
+        word_before_cursor = document.get_word_before_cursor()
         if word_before_cursor.startswith('.') or word_before_cursor.startswith('~') or '/' in word_before_cursor:
             fake_doc = Document(word_before_cursor, cursor_position=len(word_before_cursor))
             yield from self.path_completer.get_completions(fake_doc, complete_event)
