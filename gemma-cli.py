@@ -10,7 +10,7 @@ import argparse
 import time
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
-from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist, get_skills_context
+from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, get_all_binaries, update_config_whitelist, get_skills_context
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
@@ -70,24 +70,24 @@ def call_gemma(messages, config):
 def run_command(command, sandbox_config, config_path, show_output=False, auto_approve=False):
     global session_whitelist
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
-    binary = get_base_binary(command)
+    binaries = get_all_binaries(command)
     persistent_whitelist = sandbox_config.get('whitelist', [])
     label_color = "\033[93m" if "Sandbox" in sandbox_label else "\033[91m"
     print(f"{label_color}[Proposed Command ({sandbox_label}): {command}]\033[0m")
-    approved = auto_approve or binary in session_whitelist or binary in persistent_whitelist
-    if not approved:
-        confirm = input(f"\033[91mDo you want to execute '{binary}'? (y/s/p/n): \033[0m").lower()
-        if confirm == 's':
-            session_whitelist.add(binary)
-            approved = True
-        elif confirm == 'p':
-            update_config_whitelist(config_path, binary)
-            session_whitelist.add(binary)
-            approved = True
-        elif confirm == 'y':
-            approved = True
-        else:
-            return "Observation:\nUser denied execution for security reasons."
+    
+    for binary in binaries:
+        approved = auto_approve or binary in session_whitelist or binary in persistent_whitelist
+        if not approved:
+            confirm = input(f"\033[91mDo you want to execute '{binary}'? (y/s/p/n): \033[0m").lower()
+            if confirm == 's':
+                session_whitelist.add(binary)
+            elif confirm == 'p':
+                update_config_whitelist(config_path, binary)
+                session_whitelist.add(binary)
+            elif confirm == 'y':
+                pass # Approved for this one call
+            else:
+                return f"Observation:\nUser denied execution for '{binary}'."
 
     start_time = time.perf_counter()
     try:

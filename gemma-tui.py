@@ -18,7 +18,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, PathCompleter, ThreadedCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.styles import Style
-from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist, get_skills_context, save_config
+from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, get_all_binaries, update_config_whitelist, get_skills_context, save_config
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
@@ -65,27 +65,27 @@ def call_gemma(messages, config):
 def run_command(command, sandbox_config, console, config_path, show_output=False, auto_approve=False):
     global session_whitelist
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
-    binary = get_base_binary(command)
+    binaries = get_all_binaries(command)
     persistent_whitelist = sandbox_config.get('whitelist', [])
     label_style = "yellow" if "Sandbox" in sandbox_label else "red"
     console.print(Panel(f"[bold {label_style}]Proposed Command ({sandbox_label}):[/bold {label_style}]\n{command}", border_style=label_style))
-    approved = auto_approve or binary in session_whitelist or binary in persistent_whitelist
-    if not approved:
-        choices = ["y", "s", "p", "n"]
-        prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y/s/p/n): "
-        console.print(prompt_text, end="")
-        ans = input().lower().strip()
-        if ans not in choices or ans == "n":
-            return "Observation:\nUser denied execution for security reasons."
-        elif ans == "s":
-            session_whitelist.add(binary)
-            approved = True
-        elif ans == "p":
-            update_config_whitelist(config_path, binary)
-            session_whitelist.add(binary)
-            approved = True
-        else: # "y"
-            approved = True
+    
+    for binary in binaries:
+        approved = auto_approve or binary in session_whitelist or binary in persistent_whitelist
+        if not approved:
+            choices = ["y", "s", "p", "n"]
+            prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y/s/p/n): "
+            console.print(prompt_text, end="")
+            ans = input().lower().strip()
+            if ans not in choices or ans == "n":
+                return f"Observation:\nUser denied execution for '{binary}'."
+            elif ans == "s":
+                session_whitelist.add(binary)
+            elif ans == "p":
+                update_config_whitelist(config_path, binary)
+                session_whitelist.add(binary)
+            else: # "y"
+                pass
 
     start_time = time.perf_counter()
     try:

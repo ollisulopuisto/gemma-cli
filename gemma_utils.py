@@ -111,8 +111,26 @@ def run_subagent(objective, config_path="config.yaml"):
 
 def get_base_binary(command):
     """Extracts the first word/binary from a command string."""
-    first_part = command.split('|')[0].split(';')[0].split('&&')[0].strip()
-    return first_part.split()[0] if first_part else ""
+    if not command: return ""
+    # Remove leading spaces and take the first word
+    return command.strip().split()[0]
+
+def get_all_binaries(command):
+    """Extracts all potential binaries from a piped/chained command string."""
+    if not command: return []
+    # Split by common shell separators: |, ;, &, &&, ||
+    # We use a regex to handle both single and double characters
+    parts = re.split(r'[|;&]|\&\&|\|\|', command)
+    binaries = []
+    for part in parts:
+        part = part.strip()
+        if not part: continue
+        binary = get_base_binary(part)
+        if binary:
+            binaries.append(binary)
+    # Return unique binaries while preserving order of appearance
+    seen = set()
+    return [x for x in binaries if not (x in seen or seen.add(x))]
 
 def update_config_whitelist(config_path, binary):
     """Adds a binary to the persistent whitelist in config.yaml."""
