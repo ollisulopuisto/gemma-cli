@@ -16,23 +16,39 @@ This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) l
 2.  **Authentication**: The server should be configured with Basic Auth.
 3.  **Python Environment**: Python 3.11+ with `uv` installed.
 
+## Cross-Platform Support
+
+Gemma-CLI is designed to run on macOS, Linux, and Windows.
+
+- **macOS**: Fully supported with native `sandbox-exec` (Seatbelt) sandboxing.
+- **Linux**: Supported (requires `uv` or `pip`). Tool execution is currently "Unsandboxed".
+- **Windows**: Supported via PowerShell or CMD. Tool execution is currently "Unsandboxed". 
+
+The tool automatically detects your OS and provides appropriate context to the model (e.g., teaching it to use `dir` on Windows vs `ls` on Unix).
+
 ## Local Model Setup
 
-This tool is optimized for running **Gemma 3** locally on Apple Silicon using `mlx-openai-server`.
-
-### 1. Install the Model Server
-You need a Python environment with `mlx-lm` installed:
+### macOS (Optimized)
+Using `mlx-lm` is recommended for Apple Silicon:
 ```bash
 pip install mlx-lm
-```
-
-### 2. Launch the Server
-Start the server with your chosen Gemma 3 variant. For example, to run the 27B model in 4-bit quantization:
-```bash
 python -m mlx_lm.server --model mlx-community/gemma-3-27b-it-qat-4bit --port 8000
 ```
 
-### 3. VRAM / RAM Requirements
+### Linux & Windows
+You can use **Ollama** (OpenAI-compatible mode) or **LM Studio**:
+
+#### Using Ollama:
+1.  [Install Ollama](https://ollama.com/)
+2.  Run Gemma 3: `ollama run gemma3:27b` (Ollama serves an OpenAI-compatible API at `http://localhost:11434/v1`)
+3.  Update your `config.yaml` with the Ollama URL.
+
+#### Using LM Studio:
+1.  Download Gemma 3 within LM Studio.
+2.  Start the "Local Server" tab.
+3.  Ensure the port matches your `config.yaml`.
+
+### VRAM / RAM Requirements
 Depending on your Mac's Unified Memory, choose the appropriate model size:
 
 | Model Size | Quantization | Required RAM (Approx.) | Recommended Mac |
