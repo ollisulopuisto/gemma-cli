@@ -1,6 +1,6 @@
 # Gemma-CLI: Local Agentic Tool-Use for Gemma 3
 
-This tool provides a "Gemini-CLI" like experience for a locally running Gemma 3 model. It allows the model to interact with your computer by executing shell commands and reading files through a ReAct (Reasoning and Acting) loop.
+This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) like experience for a locally running Gemma 3 model. It allows the model to interact with your computer by executing shell commands and reading files through a ReAct (Reasoning and Acting) loop.
 
 ## Prerequisites
 
