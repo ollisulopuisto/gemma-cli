@@ -14,13 +14,14 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
+from rich.live import Live
+from rich.text import Text
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, PathCompleter, ThreadedCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.styles import Style
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.patch_stdout import patch_stdout
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, get_all_binaries, update_config_whitelist, get_skills_context, save_config
 
 # Default Settings
@@ -57,7 +58,6 @@ async def call_gemma_async(messages, config):
     max_retries = 2
     for attempt in range(max_retries + 1):
         try:
-            start_time = time.perf_counter()
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url, 
@@ -65,16 +65,12 @@ async def call_gemma_async(messages, config):
                     auth=(auth.get('username'), auth.get('password')),
                     timeout=60.0
                 )
-            end_time = time.perf_counter()
-            duration = end_time - start_time
             response.raise_for_status()
             data = response.json()
             message = data['choices'][0]['message']
-            return message.get('content', ''), message.get('reasoning_content', ''), duration
+            return message.get('content', ''), message.get('reasoning_content', ''), 0 # Duration not easily tracked here
         except Exception as e:
             if attempt < max_retries:
-                # Use patch_stdout to print during retry
-                print(f"\033[91mConnection error, retrying ({attempt + 1}/{max_retries})...\033[0m")
                 await asyncio.sleep(1)
                 continue
             raise e
@@ -85,6 +81,7 @@ async def run_command_async(command, sandbox_config, console, config_path, show_
     binaries = get_all_binaries(command)
     persistent_whitelist = sandbox_config.get('whitelist', [])
     label_style = "yellow" if "Sandbox" in sandbox_label else "red"
+    
     console.print(Panel(f"[bold {label_style}]Proposed Command ({sandbox_label}):[/bold {label_style}]\n{command}", border_style=label_style))
     
     for binary in binaries:
@@ -93,7 +90,6 @@ async def run_command_async(command, sandbox_config, console, config_path, show_
             choices = ["y", "s", "p", "n"]
             prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y/s/p/n): "
             console.print(prompt_text, end="")
-            # Note: We still use standard input for confirmation to keep things simple
             ans = input().lower().strip()
             if ans not in choices or ans == "n":
                 return f"Observation:\nUser denied execution for '{binary}'."
@@ -102,9 +98,7 @@ async def run_command_async(command, sandbox_config, console, config_path, show_
             elif ans == "p":
                 update_config_whitelist(config_path, binary)
                 session_whitelist.add(binary)
-            else: # "y"
-                pass
-
+    
     start_time = time.perf_counter()
     try:
         process = await asyncio.create_subprocess_shell(
@@ -170,7 +164,7 @@ async def main():
     if args.skill:
         config['sandbox'].setdefault('active_skills', []).extend(args.skill)
 
-    console = Console()
+    console = Console(force_terminal=True)
     if args.yes:
         console.print(Panel("[bold red]SECURITY WARNING: Auto-approve (--yes) is enabled.[/bold red]", border_style="red"))
 
@@ -216,15 +210,16 @@ date
     messages = [{"role": "system", "content": system_prompt}]
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
-    is_thinking = False
     
-    def get_bottom_toolbar():
-        cwd = os.getcwd()
-        user = ctx['username']
-        os_sys = ctx['os']
+    def get_status_panel(is_thinking=False):
         status = " [THINKING...]" if is_thinking else " [IDLE]"
-        status_color = "red" if is_thinking else "green"
-        return HTML(f'<b>[User:</b> {user} <b>| OS:</b> {os_sys} <b>| CWD:</b> {cwd} <b>| Sandbox:</b> {sb_summary} <b>| Status:</b> <style color="{status_color}">{status}</style><b>]</b>')
+        color = "red" if is_thinking else "green"
+        content = Text.from_markup(
+            f"[bold]User:[/bold] {ctx['username']} | [bold]OS:[/bold] {ctx['os']} | "
+            f"[bold]CWD:[/bold] {os.getcwd()} | [bold]Sandbox:[/bold] {sb_summary} | "
+            f"[bold]Status:[/bold] [{color}]{status}[/{color}]"
+        )
+        return Panel(content, style="blue", border_style="blue")
 
     console.print(Panel.fit(
         f"[bold cyan]Gemma 3 Local Agent TUI (v2026.02.20)[/bold cyan]\n"
@@ -240,49 +235,45 @@ date
         history=FileHistory(history_file),
         completer=ThreadedCompleter(WordPathCompleter(expanduser=True)),
         complete_while_typing=True,
-        bottom_toolbar=get_bottom_toolbar,
         style=Style.from_dict({'prompt': '#00afff bold', 'completion-menu.completion': 'bg:#008888 #ffffff', 'completion-menu.completion.current': 'bg:#00aaaa #000000',})
     )
     
     while True:
         try:
-            with patch_stdout():
-                user_input = await session.prompt_async(HTML('<style color="cyan">User: </style>'))
+            # We don't use patch_stdout here to avoid ANSI corruption
+            console.print("\n[bold blue]User[/bold blue]")
+            user_input = await session.prompt_async("> ")
             
             if not user_input: continue
-            
-            # Internal Commands
             if user_input.strip().lower() == "/configure":
                 handle_configure(config, args.config, console)
                 continue
-            
             if user_input.lower() in ["exit", "quit"]:
                 console.print("\n[bold green]Goodbye! Happy hacking! 💎[/bold green]")
                 break
             
             messages.append({"role": "user", "content": user_input})
-            while True:
-                is_thinking = True
-                with patch_stdout():
-                    content, reasoning, gemma_duration = await call_gemma_async(messages, config)
-                is_thinking = False
-                
-                if reasoning and args.show_reasoning:
-                    console.print("\n[italic dim cyan]Thought:[/italic dim cyan]")
-                    console.print(Panel(reasoning, border_style="dim cyan"))
-                
-                console.print(f"\n[bold magenta]Gemma[/bold magenta]")
-                console.print(Markdown(content))
-                console.print(f"[dim italic]Response time: {gemma_duration:.2f}s[/dim italic]")
-                
-                messages.append({"role": "assistant", "content": content})
-                cmd = parse_tool_call(content)
-                if cmd:
-                    with patch_stdout():
-                        observation = await run_command_async(cmd, config['sandbox'], console, args.config, show_output=args.show_output, auto_approve=args.yes)
-                    messages.append({"role": "user", "content": f"Observation:\n{observation}"})
-                    continue
-                else: break
+            
+            # Use Live to keep the status bar at the bottom during processing
+            with Live(get_status_panel(True), console=console, refresh_per_second=4, vertical_overflow="visible") as live:
+                while True:
+                    content, reasoning, _ = await call_gemma_async(messages, config)
+                    
+                    if reasoning and args.show_reasoning:
+                        live.console.print("\n[italic dim cyan]Thought:[/italic dim cyan]")
+                        live.console.print(Panel(reasoning, border_style="dim cyan"))
+                    
+                    live.console.print(f"\n[bold magenta]Gemma[/bold magenta]")
+                    live.console.print(Markdown(content))
+                    
+                    messages.append({"role": "assistant", "content": content})
+                    cmd = parse_tool_call(content)
+                    if cmd:
+                        observation = await run_command_async(cmd, config['sandbox'], live.console, args.config, show_output=args.show_output, auto_approve=args.yes)
+                        messages.append({"role": "user", "content": f"Observation:\n{observation}"})
+                        live.update(get_status_panel(True))
+                        continue
+                    else: break
         except KeyboardInterrupt: 
             console.print("\n[bold yellow]Session interrupted. Goodbye![/bold yellow]")
             break

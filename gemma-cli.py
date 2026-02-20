@@ -10,9 +10,13 @@ import yaml
 import argparse
 import time
 from datetime import datetime
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
+from rich.live import Live
+from rich.text import Text
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.patch_stdout import patch_stdout
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, get_all_binaries, update_config_whitelist, get_skills_context
 
 # Default Settings
@@ -38,7 +42,6 @@ async def call_gemma_async(messages, config):
     max_retries = 2
     for attempt in range(max_retries + 1):
         try:
-            start_time = time.perf_counter()
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url, 
@@ -46,31 +49,27 @@ async def call_gemma_async(messages, config):
                     auth=(auth.get('username'), auth.get('password')),
                     timeout=60.0
                 )
-            end_time = time.perf_counter()
-            duration = end_time - start_time
             response.raise_for_status()
             data = response.json()
             message = data['choices'][0]['message']
-            return message.get('content', ''), message.get('reasoning_content', ''), duration
+            return message.get('content', ''), message.get('reasoning_content', ''), 0
         except Exception as e:
             if attempt < max_retries:
-                print(f"\033[91mConnection error, retrying ({attempt + 1}/{max_retries})...\033[0m")
                 await asyncio.sleep(1)
                 continue
             raise e
 
-async def run_command_async(command, sandbox_config, config_path, show_output=False, auto_approve=False):
+async def run_command_async(command, sandbox_config, console, config_path, show_output=False, auto_approve=False):
     global session_whitelist
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
     binaries = get_all_binaries(command)
     persistent_whitelist = sandbox_config.get('whitelist', [])
-    label_color = "\033[93m" if "Sandbox" in sandbox_label else "\033[91m"
-    print(f"{label_color}[Proposed Command ({sandbox_label}): {command}]\033[0m")
+    label_style = "yellow" if "Sandbox" in sandbox_label else "red"
+    console.print(Panel(f"[bold {label_style}]Proposed Command ({sandbox_label}):[/bold {label_style}]\n{command}", border_style=label_style))
     
     for binary in binaries:
         approved = auto_approve or binary in session_whitelist or binary in persistent_whitelist
         if not approved:
-            # We use standard input for confirmation as prompt_toolkit doesn't support nested input easily
             confirm = input(f"\033[91mDo you want to execute '{binary}'? (y/s/p/n): \033[0m").lower()
             if confirm == 's':
                 session_whitelist.add(binary)
@@ -78,13 +77,12 @@ async def run_command_async(command, sandbox_config, config_path, show_output=Fa
                 update_config_whitelist(config_path, binary)
                 session_whitelist.add(binary)
             elif confirm == 'y':
-                pass # Approved for this one call
+                pass 
             else:
                 return f"Observation:\nUser denied execution for '{binary}'."
 
     start_time = time.perf_counter()
     try:
-        # Run asynchronously
         process = await asyncio.create_subprocess_shell(
             full_command,
             stdout=asyncio.subprocess.PIPE,
@@ -94,15 +92,15 @@ async def run_command_async(command, sandbox_config, config_path, show_output=Fa
         end_time = time.perf_counter()
         duration = end_time - start_time
         output = f"STDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}"
-        print(f"\033[3mTool finished in {duration:.3f} seconds\033[0m")
+        console.print(f"[dim italic]Tool finished in {duration:.3f} seconds[/dim italic]")
         if show_output:
-            print(f"\n--- TOOL OUTPUT ---\n{output}\n-------------------\n")
+            console.print(Panel(output, title="Tool Output", border_style="dim"))
         return output
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
 async def main():
-    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent CLI - ASYNC & PERSISTENT STATUS")
+    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent CLI - ASYNC")
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
@@ -128,6 +126,7 @@ async def main():
     if args.skill:
         config['sandbox'].setdefault('active_skills', []).extend(args.skill)
 
+    console = Console(force_terminal=True)
     ctx = get_system_context()
     skills_text, skill_files = get_skills_context(config)
     skills_summary = ", ".join(skill_files) if skill_files else "None"
@@ -170,58 +169,52 @@ date
     messages = [{"role": "system", "content": system_prompt}]
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
-    is_thinking = False
     
-    def get_bottom_toolbar():
-        cwd = os.getcwd()
-        user = ctx['username']
-        os_sys = ctx['os']
+    def get_status_panel(is_thinking=False):
         status = " [THINKING...]" if is_thinking else " [IDLE]"
-        status_color = "red" if is_thinking else "green"
-        return HTML(f'<b>[User:</b> {user} <b>| OS:</b> {os_sys} <b>| CWD:</b> {cwd} <b>| Sandbox:</b> {sb_summary} <b>| Status:</b> <style color="{status_color}">{status}</style><b>]</b>')
+        color = "red" if is_thinking else "green"
+        content = Text.from_markup(
+            f"[bold]User:[/bold] {ctx['username']} | [bold]OS:[/bold] {ctx['os']} | "
+            f"[bold]CWD:[/bold] {os.getcwd()} | [bold]Sandbox:[/bold] {sb_summary} | "
+            f"[bold]Status:[/bold] [{color}]{status}[/{color}]"
+        )
+        return Panel(content, style="blue", border_style="blue")
 
-    session = PromptSession(bottom_toolbar=get_bottom_toolbar)
-    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills_summary}. Config: {args.config}. Type 'exit' to quit.")
+    session = PromptSession()
+    console.print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills_summary}. Config: {args.config}. Type 'exit' to quit.")
     
     while True:
         try:
-            # patch_stdout ensures the toolbar stays at the bottom while things print
-            with patch_stdout():
-                user_input = await session.prompt_async(HTML('<style color="cyan">User: </style>'))
+            console.print("\n[bold cyan]User[/bold cyan]")
+            user_input = await session.prompt_async("> ")
             
             if not user_input.strip(): continue
             if user_input.lower() in ["exit", "quit"]:
-                print("\n\033[92mGoodbye! Happy hacking! 💎\033[0m")
+                console.print("\n[bold green]Goodbye! Happy hacking! 💎[/bold green]")
                 break
             
             messages.append({"role": "user", "content": user_input})
-            while True:
-                is_thinking = True
-                with patch_stdout():
-                    content, reasoning, gemma_duration = await call_gemma_async(messages, config)
-                is_thinking = False
-                
-                if reasoning and args.show_reasoning:
-                    print(f"\n\033[36mThought: {reasoning}\033[0m")
-                
-                print(f"\nGemma: {content}")
-                print(f"\033[90m(Response time: {gemma_duration:.2f}s)\033[0m\n")
-                
-                messages.append({"role": "assistant", "content": content})
-                cmd = parse_tool_call(content)
-                if cmd:
-                    with patch_stdout():
-                        observation = await run_command_async(cmd, config['sandbox'], args.config, show_output=args.show_output, auto_approve=args.yes)
-                    messages.append({"role": "user", "content": f"Observation:\n{observation}"})
-                    continue
-                else: break
-        except KeyboardInterrupt:
-            print("\n\033[93mSession interrupted. Goodbye!\033[0m")
-            break
-        except EOFError:
-            print("\n\033[92mGoodbye! (EOF detected)\033[0m")
-            break
-        except Exception as e: print(f"Error: {e}")
+            
+            with Live(get_status_panel(True), console=console, refresh_per_second=4, vertical_overflow="visible") as live:
+                while True:
+                    content, reasoning, _ = await call_gemma_async(messages, config)
+                    
+                    if reasoning and args.show_reasoning:
+                        live.console.print(f"\n[italic dim cyan]Thought: {reasoning}[/italic dim cyan]")
+                    
+                    live.console.print(f"\nGemma: {content}")
+                    
+                    messages.append({"role": "assistant", "content": content})
+                    cmd = parse_tool_call(content)
+                    if cmd:
+                        observation = await run_command_async(cmd, config['sandbox'], live.console, args.config, show_output=args.show_output, auto_approve=args.yes)
+                        messages.append({"role": "user", "content": f"Observation:\n{observation}"})
+                        live.update(get_status_panel(True))
+                        continue
+                    else: break
+        except KeyboardInterrupt: break
+        except EOFError: break
+        except Exception as e: console.print(f"[bold red]Error:[/bold red] {e}")
 
 if __name__ == "__main__":
     try:
