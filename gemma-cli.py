@@ -132,8 +132,7 @@ class GemmaApp:
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
         
-        # Setup cursor conditions
-        self.output_field.window.cursor = Condition(lambda: False)
+        # Cursor
         self.input_field.window.cursor = Condition(lambda: self.input_enabled)
 
         self.layout = Layout(
@@ -192,11 +191,6 @@ class GemmaApp:
                 'padding-line': 'fg:#333333 bg:#000000',
                 'padding-line-disabled': 'fg:#222222 bg:#000000',
                 'status-bar': 'bg:#000000',
-                'status-label': '#888888 bold',
-                'status-value': '#ffffff',
-                'status-idle': 'ansigreen',
-                'status-thinking': 'ansired',
-                'status-waiting': 'ansiyellow',
             })
         )
         asyncio.create_task(self._spinner_loop())
@@ -209,20 +203,25 @@ class GemmaApp:
             await asyncio.sleep(0.1)
 
     def get_status_text(self):
+        L = 'fg="#888888" b' # Label style
+        V = 'fg="#ffffff"'    # Value style
+        
         if self.is_thinking:
             frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-            status = HTML(f'<style color="ansired">{frame} THINKING...</style>')
+            status = f'<style fg="ansired">{frame} THINKING...</style>'
         elif self.waiting_for_approval:
-            status = HTML('<style color="ansiyellow">WAITING APPROVAL</style>')
+            status = '<style fg="ansiyellow">WAITING APPROVAL</style>'
         else:
-            status = HTML('<style color="ansigreen">IDLE (type /help)</style>')
-        dur_text = HTML(f' | <class name="status-label">Last:</class> <class name="status-value">{self.last_duration:.2f}s</class>') if self.last_duration > 0 else ""
+            status = '<style fg="ansigreen">IDLE (type /help)</style>'
+            
+        dur = f' | <style {L}>Last:</style> <style {V}>{self.last_duration:.2f}s</style>' if self.last_duration > 0 else ""
+        
         return HTML(
-            f' <class name="status-label">User:</class> <class name="status-value">{self.ctx["username"]}</class> | '
-            f'<class name="status-label">CWD:</class> <class name="status-value">{os.getcwd()}</class> | '
-            f'<class name="status-label">Sandbox:</class> <class name="status-value">{self.sb_summary}</class> | '
-            f'<class name="status-label">Skills:</class> <class name="status-value">{self.skills_summary}</class> | '
-            f'<class name="status-label">Status:</class> {status}{dur_text} '
+            f' <style {L}>User:</style> <style {V}>{self.ctx["username"]}</style> | '
+            f'<style {L}>CWD:</style> <style {V}>{os.getcwd()}</style> | '
+            f'<style {L}>Sandbox:</style> <style {V}>{self.sb_summary}</style> | '
+            f'<style {L}>Skills:</style> <style {V}>{self.skills_summary}</style> | '
+            f'<style {L}>Status:</style> {status}{dur} '
         )
 
     def log(self, text):
@@ -242,10 +241,8 @@ class GemmaApp:
         self.top_padding.style = padding_style
         self.bottom_padding.style = padding_style
         self.prompt_window.style = style
-        if not enabled:
-            self.app.layout.focus(self.output_field)
-        else:
-            self.app.layout.focus(self.input_field)
+        if not enabled: self.app.layout.focus(self.output_field)
+        else: self.app.layout.focus(self.input_field)
 
     async def handle_input(self, text):
         global session_whitelist
