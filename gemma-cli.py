@@ -114,6 +114,10 @@ class GemmaApp:
         self.prompt_label = FormattedTextControl(" User: ")
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
+        # Fetch skills summary once or on update
+        _, skill_files = get_skills_context(config)
+        self.skills_summary = ", ".join(skill_files) if skill_files else "None"
+
         self.status_bar = Window(
             content=FormattedTextControl(self.get_status_text),
             height=1,
@@ -128,7 +132,6 @@ class GemmaApp:
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
         
-        # Important: Hide cursor when input is disabled
         self.input_field.window.cursor = Condition(lambda: self.input_enabled)
 
         self.layout = Layout(
@@ -187,6 +190,11 @@ class GemmaApp:
                 'padding-line': 'fg:#333333 bg:#000000',
                 'padding-line-disabled': 'fg:#222222 bg:#000000',
                 'status-bar': 'bg:#000000 #ffffff',
+                'status-label': 'ansigray bold',
+                'status-value': 'ansicyan',
+                'status-idle': 'ansigreen',
+                'status-thinking': 'ansired',
+                'status-waiting': 'ansiyellow',
             })
         )
         asyncio.create_task(self._spinner_loop())
@@ -201,16 +209,21 @@ class GemmaApp:
     def get_status_text(self):
         if self.is_thinking:
             frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-            status = f"{frame} THINKING..."
-            color = "ansired"
+            status = HTML(f'<class name="status-thinking">{frame} THINKING...</class>')
         elif self.waiting_for_approval:
-            status = "WAITING APPROVAL"
-            color = "ansiyellow"
+            status = HTML('<class name="status-waiting">WAITING APPROVAL</class>')
         else:
-            status = "IDLE (type /help for commands)"
-            color = "ansigreen"
-        dur_text = f" | Last: {self.last_duration:.2f}s" if self.last_duration > 0 else ""
-        return HTML(f" User: {self.ctx['username']} | CWD: {os.getcwd()} | Sandbox: {self.sb_summary} | Status: <{color}>{status}</{color}>{dur_text} ")
+            status = HTML('<class name="status-idle">IDLE (type /help for commands)</class>')
+            
+        dur_text = HTML(f' | <class name="status-label">Last:</class> <class name="status-value">{self.last_duration:.2f}s</class>') if self.last_duration > 0 else ""
+        
+        return HTML(
+            f' <class name="status-label">User:</class> <class name="status-value">{self.ctx["username"]}</class> | '
+            f'<class name="status-label">CWD:</class> <class name="status-value">{os.getcwd()}</class> | '
+            f'<class name="status-label">Sandbox:</class> <class name="status-value">{self.sb_summary}</class> | '
+            f'<class name="status-label">Skills:</class> <class name="status-value">{self.skills_summary}</class> | '
+            f'<class name="status-label">Status:</class> {status}{dur_text} '
+        )
 
     def log(self, text):
         self.output_field.read_only = False
@@ -252,7 +265,6 @@ class GemmaApp:
 
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
-        
         self._set_input_enabled(False)
         try:
             while True:
