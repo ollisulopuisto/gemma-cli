@@ -37,7 +37,7 @@ jobs:
         run: |
           VERSION="${{ steps.date.outputs.date }}"
           # Update pyproject.toml
-          sed -i "s/version = ".*"/version = "$VERSION"/" pyproject.toml
+          sed -i "s/version = \".*\"/version = \"$VERSION\"/" pyproject.toml
           # Update gemma-cli.py
           sed -i "s/(v[0-9.]*)/(v$VERSION)/" gemma-cli.py
           # Update gemma-tui.py
