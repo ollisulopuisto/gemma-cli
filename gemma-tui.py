@@ -197,6 +197,8 @@ class GemmaTUI:
                         ans = await future
                         self.waiting_for_approval = None
                         self.prompt_label.text = " User: "
+                        self.log(f"[System] User selected: {ans}")
+                        
                         if ans in ['y', 's', 'p']:
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
