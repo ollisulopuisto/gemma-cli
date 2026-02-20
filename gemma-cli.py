@@ -8,6 +8,8 @@ import os
 import yaml
 import argparse
 import time
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist, get_skills_context
 
 # Default Settings
@@ -169,11 +171,22 @@ date
     messages = [{"role": "system", "content": system_prompt}]
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
-    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills_label}. Config: {args.config}. Type 'exit' to quit.")
+    skills_summary = ", ".join(skill_files) if skill_files else "None"
+    
+    def get_bottom_toolbar():
+        cwd = os.getcwd()
+        user = ctx['username']
+        os_sys = ctx['os']
+        return HTML(f'<b>[User:</b> {user} <b>| OS:</b> {os_sys} <b>| CWD:</b> {cwd} <b>| Sandbox:</b> {sb_summary} <b>| Skills:</b> {skills_summary}<b>]</b>')
+
+    session = PromptSession(bottom_toolbar=get_bottom_toolbar)
+    
+    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills_summary}. Config: {args.config}. Type 'exit' to quit.")
     
     while True:
         try:
-            user_input = input("\033[94mUser: \033[0m")
+            user_input = session.prompt(HTML('<style color="cyan">User: </style>'))
+            if not user_input.strip(): continue
             if user_input.lower() in ["exit", "quit"]: break
             messages.append({"role": "user", "content": user_input})
             while True:

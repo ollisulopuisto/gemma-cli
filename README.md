@@ -6,6 +6,9 @@ This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) l
 
 Gemma-CLI supports multiple ways to extend the agent's context and rules:
 
+### Persistent Info Bar
+The CLI now includes a persistent bottom toolbar that displays your current user, OS, current working directory (CWD), sandbox level, and loaded skills, providing real-time context without cluttering the chat history.
+
 ### Identity & Personality (`IDENTITY.md`, `SOUL.md`)
 Inspired by [PicoClaw](https://github.com/sipeed/picoclaw), Gemma-CLI can now be given a persistent identity and personality:
 - **`IDENTITY.md`**: Defines the agent's technical role, name, and core capabilities.
