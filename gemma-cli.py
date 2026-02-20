@@ -170,12 +170,15 @@ date
     messages = [{"role": "system", "content": system_prompt}]
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
+    is_thinking = False
     
     def get_bottom_toolbar():
         cwd = os.getcwd()
         user = ctx['username']
         os_sys = ctx['os']
-        return HTML(f'<b>[User:</b> {user} <b>| OS:</b> {os_sys} <b>| CWD:</b> {cwd} <b>| Sandbox:</b> {sb_summary} <b>| Skills:</b> {skills_summary}<b>]</b>')
+        status = " [THINKING...]" if is_thinking else " [IDLE]"
+        status_color = "red" if is_thinking else "green"
+        return HTML(f'<b>[User:</b> {user} <b>| OS:</b> {os_sys} <b>| CWD:</b> {cwd} <b>| Sandbox:</b> {sb_summary} <b>| Status:</b> <style color="{status_color}">{status}</style><b>]</b>')
 
     session = PromptSession(bottom_toolbar=get_bottom_toolbar)
     print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills_summary}. Config: {args.config}. Type 'exit' to quit.")
@@ -193,8 +196,10 @@ date
             
             messages.append({"role": "user", "content": user_input})
             while True:
+                is_thinking = True
                 with patch_stdout():
                     content, reasoning, gemma_duration = await call_gemma_async(messages, config)
+                is_thinking = False
                 
                 if reasoning and args.show_reasoning:
                     print(f"\n\033[36mThought: {reasoning}\033[0m")
