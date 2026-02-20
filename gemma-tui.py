@@ -127,7 +127,8 @@ def main():
         console.print(Panel("[bold red]SECURITY WARNING: Auto-approve (--yes) is enabled. All tool commands will run without confirmation.[/bold red]", border_style="red"))
 
     ctx = get_system_context()
-    skills = get_skills_context()
+    skills_text, skill_files = get_skills_context()
+    skills_label = ", ".join(skill_files) if skill_files else "None"
     
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
 Current Context (Sniffed from System):
@@ -137,7 +138,7 @@ Current Context (Sniffed from System):
 - Time: {ctx['now']}
 - Shell: {ctx['shell']}
 
-{skills}
+{skills_text}
 
 RULES:
 1. You have REAL-TIME capabilities. If asked for the time, weather (via curl), system stats, or file info, USE A TOOL.
@@ -155,7 +156,9 @@ date
     
     console.print(Panel.fit(
         f"[bold cyan]Gemma 3 Local Agent TUI (v2026.02.20)[/bold cyan]\n"
-        f"Config: {args.config} | Sandbox Config: {sb_summary} | Skills loaded: {skills != ''}\n"
+        f"Config: {args.config} | Sandbox Config: {sb_summary}\n"
+        f"Skills loaded: [green]{skills_label}[/green]\n"
+        f"Output: {'[green]ON[/green]' if args.show_output else '[red]OFF[/red]'} | Reasoning: {'[green]ON[/green]' if args.show_reasoning else '[red]OFF[/red]'}\n"
         "Type your request below. Type [bold red]'exit'[/bold red] or [bold red]'quit'[/bold red] to end the session.",
         border_style="cyan"
     ))

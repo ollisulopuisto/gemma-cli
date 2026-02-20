@@ -28,18 +28,21 @@ def get_system_context():
     }
 
 def get_skills_context(skills_dir="skills"):
-    """Reads all markdown files in the skills directory to extend the system prompt."""
+    """Reads all markdown files in the skills directory to extend the system prompt.
+    Returns: (full_text, list_of_filenames)
+    """
     skills_text = ""
+    skill_files = []
     if os.path.exists(skills_dir) and os.path.isdir(skills_dir):
-        for filename in os.listdir(skills_dir):
+        for filename in sorted(os.listdir(skills_dir)):
             if filename.endswith(".md"):
                 with open(os.path.join(skills_dir, filename), 'r', encoding='utf-8') as f:
                     skills_text += f"\n\n--- SKILL: {filename} ---\n{f.read()}\n"
-    return skills_text
+                    skill_files.append(filename)
+    return skills_text, skill_files
 
 def get_base_binary(command):
     """Extracts the first word/binary from a command string, ignoring pipes etc."""
-    # Handle simple cases, might need more robust parsing for complex chains
     first_part = command.split('|')[0].split(';')[0].split('&&')[0].strip()
     return first_part.split()[0] if first_part else ""
 
@@ -72,7 +75,6 @@ def get_sandbox_command(command, sandbox_config):
         # macOS Seatbelt
         cwd = os.getcwd()
         raw_paths = sandbox_config.get('allowed_paths', [])
-        # Expand ~ and make absolute
         allowed_paths = [os.path.abspath(os.path.expanduser(p)) for p in raw_paths]
         paths_str = "\n".join([f'    (subpath "{p}")' for p in allowed_paths + [cwd]])
         
@@ -98,16 +100,4 @@ def get_sandbox_command(command, sandbox_config):
 """
         return f"sandbox-exec -p '{profile}' {command}", f"macOS {level}"
 
-    elif system == "Linux":
-        # Check for bubblewrap (common on Linux)
-        import shutil
-        if shutil.which("bwrap"):
-            # Simple bubblewrap implementation
-            # --dev-bind / /: bind-mount host root to sandbox root
-            # --tmpfs /tmp: create a fresh tmpfs for /tmp (restricting writes if not bound)
-            # This is complex to get right, so we'll just return a warning for now
-            # or a very basic sandbox.
-            pass
-            
-    # Fallback for Windows and Linux without bwrap
     return command, f"{system} (Unsandboxed)"

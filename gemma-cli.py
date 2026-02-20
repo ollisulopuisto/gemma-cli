@@ -115,7 +115,8 @@ def main():
         print("\033[91m[SECURITY WARNING: Auto-approve (--yes) is enabled. Commands will run without confirmation.]\033[0m")
 
     ctx = get_system_context()
-    skills = get_skills_context()
+    skills_text, skill_files = get_skills_context()
+    skills_label = ", ".join(skill_files) if skill_files else "None"
     
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
 Current Context (Sniffed from System):
@@ -125,7 +126,7 @@ Current Context (Sniffed from System):
 - Time: {ctx['now']}
 - Shell: {ctx['shell']}
 
-{skills}
+{skills_text}
 
 RULES:
 1. You have REAL-TIME capabilities. If asked for the time, weather (via curl), system stats, or file info, USE A TOOL.
@@ -140,7 +141,7 @@ date
     messages = [{"role": "system", "content": system_prompt}]
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
-    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills != ''}. Config: {args.config}. Type 'exit' to quit.")
+    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Skills loaded: {skills_label}. Config: {args.config}. Type 'exit' to quit.")
     
     while True:
         try:

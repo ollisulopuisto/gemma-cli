@@ -2,6 +2,14 @@
 
 This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) like experience for a locally running Gemma 3 model. It allows the model to interact with your computer by executing shell commands and reading files through a ReAct (Reasoning and Acting) loop.
 
+## 💡 Skills / Agents System
+
+You can extend Gemma's capabilities and personality by adding Markdown files to the `skills/` directory.
+
+- **How it works**: All `.md` files in the `skills/` folder are loaded at startup and injected into the system prompt.
+- **Example**: Create `skills/python_expert.md` to give Gemma specific instructions on how you want Python code to be written.
+- **Pre-loaded**: The project comes with `skills/AGENTS.md` which defines core operational principles.
+
 ## 🛡️ Security Features
 
 **Security is paramount when running LLM-generated code.** This tool includes several layers of protection:
