@@ -95,6 +95,7 @@ class GemmaApp:
         self.args = args
         self.ctx = ctx
         self.is_thinking = False
+        self.input_enabled = True
         self.last_duration = 0.0
         self.messages = [{"role": "system", "content": system_prompt}]
         self.waiting_for_approval = None 
@@ -127,6 +128,9 @@ class GemmaApp:
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
         
+        # Important: Hide cursor when input is disabled
+        self.input_field.window.cursor = Condition(lambda: self.input_enabled)
+
         self.layout = Layout(
             HSplit([
                 self.output_field,
@@ -146,7 +150,6 @@ class GemmaApp:
         @self.kb.add("tab")
         def _(event): event.app.layout.focus_next()
 
-        # Approval hotkeys (no Enter needed)
         @Condition
         def is_waiting():
             return self.waiting_for_approval is not None
@@ -218,6 +221,7 @@ class GemmaApp:
                 f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {strip_ansi(text)}\n")
 
     def _set_input_enabled(self, enabled: bool):
+        self.input_enabled = enabled
         self.input_field.read_only = not enabled
         style = "class:input-area" if enabled else "class:input-area-disabled"
         padding_style = "class:padding-line" if enabled else "class:padding-line-disabled"
