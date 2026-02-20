@@ -1,5 +1,6 @@
 #!/usr/bin/env uv run
-import requests
+import httpx
+import asyncio
 import json
 import subprocess
 import re
@@ -18,6 +19,8 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, PathCompleter, ThreadedCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.patch_stdout import patch_stdout
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, get_all_binaries, update_config_whitelist, get_skills_context, save_config
 
 # Default Settings
@@ -41,7 +44,7 @@ def load_config(config_path):
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
-def call_gemma(messages, config):
+async def call_gemma_async(messages, config):
     server = config.get('server', {})
     payload = {
         "model": server.get('model'),
@@ -49,20 +52,34 @@ def call_gemma(messages, config):
         "temperature": 0.1
     }
     auth = server.get('auth', {})
-    start_time = time.perf_counter()
-    response = requests.post(
-        server.get('url'), 
-        json=payload, 
-        auth=(auth.get('username'), auth.get('password'))
-    )
-    end_time = time.perf_counter()
-    duration = end_time - start_time
-    response.raise_for_status()
-    data = response.json()
-    message = data['choices'][0]['message']
-    return message.get('content', ''), message.get('reasoning_content', ''), duration
+    url = server.get('url')
+    
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            start_time = time.perf_counter()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url, 
+                    json=payload, 
+                    auth=(auth.get('username'), auth.get('password')),
+                    timeout=60.0
+                )
+            end_time = time.perf_counter()
+            duration = end_time - start_time
+            response.raise_for_status()
+            data = response.json()
+            message = data['choices'][0]['message']
+            return message.get('content', ''), message.get('reasoning_content', ''), duration
+        except Exception as e:
+            if attempt < max_retries:
+                # Use patch_stdout to print during retry
+                print(f"\033[91mConnection error, retrying ({attempt + 1}/{max_retries})...\033[0m")
+                await asyncio.sleep(1)
+                continue
+            raise e
 
-def run_command(command, sandbox_config, console, config_path, show_output=False, auto_approve=False):
+async def run_command_async(command, sandbox_config, console, config_path, show_output=False, auto_approve=False):
     global session_whitelist
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
     binaries = get_all_binaries(command)
@@ -76,6 +93,7 @@ def run_command(command, sandbox_config, console, config_path, show_output=False
             choices = ["y", "s", "p", "n"]
             prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y/s/p/n): "
             console.print(prompt_text, end="")
+            # Note: We still use standard input for confirmation to keep things simple
             ans = input().lower().strip()
             if ans not in choices or ans == "n":
                 return f"Observation:\nUser denied execution for '{binary}'."
@@ -89,10 +107,15 @@ def run_command(command, sandbox_config, console, config_path, show_output=False
 
     start_time = time.perf_counter()
     try:
-        result = subprocess.run(full_command, shell=True, capture_output=True, text=True, timeout=30)
+        process = await asyncio.create_subprocess_shell(
+            full_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
         end_time = time.perf_counter()
         duration = end_time - start_time
-        output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        output = f"STDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}"
         console.print(f"[dim italic]Tool finished in {duration:.3f} seconds[/dim italic]")
         if show_output:
             console.print(Panel(output, title="Tool Output", border_style="dim"))
@@ -101,46 +124,27 @@ def run_command(command, sandbox_config, console, config_path, show_output=False
         return f"Error executing command: {str(e)}"
 
 def handle_configure(config, config_path, console):
-    """Interactively edit config."""
-    console.print(Panel("[bold cyan]Interactive Configuration[/bold cyan]", border_style="cyan"))
+    """Interactive configuration helper."""
+    table = Table(title="Gemma CLI Configuration")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="magenta")
     
-    # 1. Sandbox Level
-    current_level = config['sandbox'].get('level', 'permissive')
-    new_level = Prompt.ask("Sandbox level", choices=["off", "permissive", "strict"], default=current_level)
-    config['sandbox']['level'] = new_level
-    config['sandbox']['enabled'] = (new_level != "off")
-
-    # 2. Whitelist
-    whitelist = config['sandbox'].get('whitelist', [])
-    console.print(f"Current whitelist: [green]{', '.join(whitelist)}[/green]")
-    if Confirm.ask("Add to whitelist?", default=False):
-        new_binary = Prompt.ask("Binary name to add")
-        if new_binary and new_binary not in whitelist:
-            whitelist.append(new_binary)
-            config['sandbox']['whitelist'] = whitelist
-
-    # 3. Active Skills
-    active_skills = config['sandbox'].get('active_skills', [])
-    console.print(f"Active global skills: [green]{', '.join(active_skills)}[/green]")
-    if Confirm.ask("Manage active skills?", default=False):
-        skill_to_add = Prompt.ask("Skill ID to activate (folder name in ~/.agent/skills/skills/)")
-        if skill_to_add and skill_to_add not in active_skills:
-            active_skills.append(skill_to_add)
-            config['sandbox']['active_skills'] = active_skills
-        
-        skill_to_remove = Prompt.ask("Skill ID to deactivate (empty to skip)")
-        if skill_to_remove in active_skills:
-            active_skills.remove(skill_to_remove)
-            config['sandbox']['active_skills'] = active_skills
-
-    if Confirm.ask("[bold yellow]Save changes to config.yaml?[/bold yellow]", default=True):
+    sb = config.get('sandbox', {})
+    table.add_row("Sandbox Enabled", str(sb.get('enabled')))
+    table.add_row("Sandbox Level", sb.get('level'))
+    table.add_row("Active Skills", ", ".join(sb.get('active_skills', [])))
+    
+    console.print(table)
+    
+    if Confirm.ask("Do you want to change settings?"):
+        new_level = Prompt.ask("Sandbox Level", choices=["off", "permissive", "strict"], default=sb.get('level'))
+        config['sandbox']['level'] = new_level
+        config['sandbox']['enabled'] = (new_level != "off")
         save_config(config_path, config)
-        console.print("[bold green]Configuration saved! Restart may be needed for some changes.[/bold green]")
-    else:
-        console.print("[yellow]Changes discarded for this session (will persist in memory until quit).[/yellow]")
+        console.print("[green]Configuration saved![/green]")
 
-def main():
-    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent TUI - SKILLS ENABLED")
+async def main():
+    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent TUI - ASYNC")
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
@@ -184,6 +188,21 @@ Current Context (Sniffed from System):
 
 {skills_text}
 
+SPECIAL TOOLS (via python gemma_utils.py):
+1. **Smarter Editing**: To edit a file precisely, use:
+   ```tool_code
+   # Prepare old.txt and new.txt with EXACT content, then:
+   python gemma_utils.py edit path/to/file old.txt new.txt
+   ```
+2. **Sub-agents**: To delegate a complex sub-task to another agent:
+   ```tool_code
+   python gemma_utils.py subagent "Objective for the sub-agent"
+   ```
+3. **Notifications**: To send an alert to the user's configured webhook (Slack/Discord):
+   ```tool_code
+   python gemma_utils.py notify "Message to send"
+   ```
+
 RULES:
 1. You have REAL-TIME capabilities. If asked for the time, weather (via curl), system stats, or file info, USE A TOOL.
 2. DO NOT say "I am a language model" or "I don't have access to real-time info". You HAVE access via the shell.
@@ -198,6 +217,12 @@ date
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
     
+    def get_bottom_toolbar():
+        cwd = os.getcwd()
+        user = ctx['username']
+        os_sys = ctx['os']
+        return HTML(f'<b>[User:</b> {user} <b>| OS:</b> {os_sys} <b>| CWD:</b> {cwd} <b>| Sandbox:</b> {sb_summary} <b>| Skills:</b> {skills_label}<b>]</b>')
+
     console.print(Panel.fit(
         f"[bold cyan]Gemma 3 Local Agent TUI (v2026.02.20)[/bold cyan]\n"
         f"Config: {args.config} | Sandbox Config: {sb_summary}\n"
@@ -212,13 +237,15 @@ date
         history=FileHistory(history_file),
         completer=ThreadedCompleter(WordPathCompleter(expanduser=True)),
         complete_while_typing=True,
+        bottom_toolbar=get_bottom_toolbar,
         style=Style.from_dict({'prompt': '#00afff bold', 'completion-menu.completion': 'bg:#008888 #ffffff', 'completion-menu.completion.current': 'bg:#00aaaa #000000',})
     )
     
     while True:
         try:
-            console.print("\n[bold blue]User[/bold blue]")
-            user_input = session.prompt("> ")
+            with patch_stdout():
+                user_input = await session.prompt_async(HTML('<style color="cyan">User: </style>'))
+            
             if not user_input: continue
             
             # Internal Commands
@@ -230,18 +257,23 @@ date
             
             messages.append({"role": "user", "content": user_input})
             while True:
-                with console.status("[bold green]Gemma is thinking...", spinner="dots"):
-                    content, reasoning, gemma_duration = call_gemma(messages, config)
+                with patch_stdout():
+                    with console.status("[bold green]Gemma is thinking...", spinner="dots"):
+                        content, reasoning, gemma_duration = await call_gemma_async(messages, config)
+                
                 if reasoning and args.show_reasoning:
                     console.print("\n[italic dim cyan]Thought:[/italic dim cyan]")
                     console.print(Panel(reasoning, border_style="dim cyan"))
+                
                 console.print(f"\n[bold magenta]Gemma[/bold magenta]")
                 console.print(Markdown(content))
                 console.print(f"[dim italic]Response time: {gemma_duration:.2f}s[/dim italic]")
+                
                 messages.append({"role": "assistant", "content": content})
                 cmd = parse_tool_call(content)
                 if cmd:
-                    observation = run_command(cmd, config['sandbox'], console, args.config, show_output=args.show_output, auto_approve=args.yes)
+                    with patch_stdout():
+                        observation = await run_command_async(cmd, config['sandbox'], console, args.config, show_output=args.show_output, auto_approve=args.yes)
                     messages.append({"role": "user", "content": f"Observation:\n{observation}"})
                     continue
                 else: break
@@ -250,4 +282,7 @@ date
         except Exception as e: console.print(f"[bold red]Error:[/bold red] {e}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
