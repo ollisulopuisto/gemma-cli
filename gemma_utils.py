@@ -27,22 +27,39 @@ def get_system_context():
         "shell": os.environ.get("SHELL", "cmd.exe" if platform.system() == "Windows" else "/bin/sh")
     }
 
-def get_skills_context(skills_dir="skills"):
-    """Reads all markdown files in the skills directory to extend the system prompt.
-    Returns: (full_text, list_of_filenames)
+def get_skills_context(config=None):
+    """Reads skills from local and global directories.
+    Returns: (full_text, list_of_skill_names)
     """
     skills_text = ""
-    skill_files = []
-    if os.path.exists(skills_dir) and os.path.isdir(skills_dir):
-        for filename in sorted(os.listdir(skills_dir)):
+    skill_names = []
+    
+    # 1. Local project skills
+    local_dir = "skills"
+    if os.path.exists(local_dir) and os.path.isdir(local_dir):
+        for filename in sorted(os.listdir(local_dir)):
             if filename.endswith(".md"):
-                with open(os.path.join(skills_dir, filename), 'r', encoding='utf-8') as f:
-                    skills_text += f"\n\n--- SKILL: {filename} ---\n{f.read()}\n"
-                    skill_files.append(filename)
-    return skills_text, skill_files
+                with open(os.path.join(local_dir, filename), 'r', encoding='utf-8') as f:
+                    skills_text += f"\n\n--- LOCAL SKILL: {filename} ---\n{f.read()}\n"
+                    skill_names.append(f"local:{filename}")
+
+    # 2. Global agent skills (~/.agent/skills/skills/)
+    if config:
+        active_globals = config.get('sandbox', {}).get('active_skills', [])
+        global_base = os.path.expanduser("~/.agent/skills/skills")
+        
+        if active_globals and os.path.exists(global_base):
+            for skill_id in active_globals:
+                skill_path = os.path.join(global_base, skill_id, "SKILL.md")
+                if os.path.exists(skill_path):
+                    with open(skill_path, 'r', encoding='utf-8') as f:
+                        skills_text += f"\n\n--- GLOBAL SKILL: {skill_id} ---\n{f.read()}\n"
+                        skill_names.append(f"global:{skill_id}")
+                        
+    return skills_text, skill_names
 
 def get_base_binary(command):
-    """Extracts the first word/binary from a command string, ignoring pipes etc."""
+    """Extracts the first word/binary from a command string."""
     first_part = command.split('|')[0].split(';')[0].split('&&')[0].strip()
     return first_part.split()[0] if first_part else ""
 
@@ -70,34 +87,16 @@ def get_sandbox_command(command, sandbox_config):
         return command, "OFF"
         
     system = platform.system()
-    
     if system == "Darwin":
-        # macOS Seatbelt
         cwd = os.getcwd()
         raw_paths = sandbox_config.get('allowed_paths', [])
         allowed_paths = [os.path.abspath(os.path.expanduser(p)) for p in raw_paths]
         paths_str = "\n".join([f'    (subpath "{p}")' for p in allowed_paths + [cwd]])
         
         if level == "strict":
-            profile = f"""(version 1)
-(deny default)
-(allow process-exec)
-(allow sysctl-read)
-(allow file-read* {paths_str})
-(allow file-write* {paths_str})
-(deny network*)
-(deny mach-lookup)
-"""
+            profile = f"(version 1)\n(deny default)\n(allow process-exec)\n(allow sysctl-read)\n(allow file-read* {paths_str})\n(allow file-write* {paths_str})\n(deny network*)\n(deny mach-lookup)"
         else:
-            profile = f"""(version 1)
-(allow default)
-(deny file-write*
-    (subpath "/")
-)
-(allow file-write*
-{paths_str}
-)
-"""
+            profile = f"(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))\n(allow file-write* {paths_str})"
         return f"sandbox-exec -p '{profile}' {command}", f"macOS {level}"
 
     return command, f"{system} (Unsandboxed)"

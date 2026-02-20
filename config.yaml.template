@@ -30,3 +30,7 @@ sandbox:
     - "ls"
     - "date"
     - "whoami"
+  # List of global skills to load from ~/.agent/skills/skills/
+  # Example: - "python-patterns"
+  active_skills:
+    - "bash-linux"

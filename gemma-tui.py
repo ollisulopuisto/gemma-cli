@@ -127,7 +127,7 @@ def main():
         console.print(Panel("[bold red]SECURITY WARNING: Auto-approve (--yes) is enabled. All tool commands will run without confirmation.[/bold red]", border_style="red"))
 
     ctx = get_system_context()
-    skills_text, skill_files = get_skills_context()
+    skills_text, skill_files = get_skills_context(config)
     skills_label = ", ".join(skill_files) if skill_files else "None"
     
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.

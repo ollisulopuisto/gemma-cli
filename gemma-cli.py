@@ -115,7 +115,7 @@ def main():
         print("\033[91m[SECURITY WARNING: Auto-approve (--yes) is enabled. Commands will run without confirmation.]\033[0m")
 
     ctx = get_system_context()
-    skills_text, skill_files = get_skills_context()
+    skills_text, skill_files = get_skills_context(config)
     skills_label = ", ".join(skill_files) if skill_files else "None"
     
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.

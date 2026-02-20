@@ -6,8 +6,9 @@ This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) l
 
 You can extend Gemma's capabilities and personality by adding Markdown files to the `skills/` directory.
 
-- **How it works**: All `.md` files in the `skills/` folder are loaded at startup and injected into the system prompt.
-- **Example**: Create `skills/python_expert.md` to give Gemma specific instructions on how you want Python code to be written.
+- **Local Skills**: All `.md` files in the `skills/` folder are loaded at startup.
+- **Global Skills**: Supports the "standard" `~/.agent/skills/skills/` directory.
+- **Activation**: To use a global skill, add its folder name to the `active_skills` list in your `config.yaml`.
 - **Pre-loaded**: The project comes with `skills/AGENTS.md` which defines core operational principles.
 
 ## 🛡️ Security Features
