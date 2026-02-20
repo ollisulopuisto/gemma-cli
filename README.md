@@ -25,7 +25,7 @@ Gemma-CLI now includes built-in utility tools (via `python gemma_utils.py`):
 
 ### Skills System
 - **Local Skills**: All `.md` files in the `skills/` folder are loaded at startup.
-- **Global Skills**: Supports the "standard" `~/.agent/skills/skills/` directory.
+- **Global Skills**: Supports the "standard" `~/.agent/skills/` directory.
 
 ## 🛡️ Security Features
 

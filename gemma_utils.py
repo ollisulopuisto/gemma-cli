@@ -60,10 +60,10 @@ def get_skills_context(config=None):
                     skills_text += f"\n\n--- LOCAL SKILL: {filename} ---\n{f.read()}\n"
                     skill_names.append(f"local:{filename}")
 
-    # 3. Global agent skills (~/.agent/skills/skills/)
+    # 3. Global agent skills (~/.agent/skills/)
     if config:
         active_globals = config.get('sandbox', {}).get('active_skills', [])
-        global_base = os.path.expanduser("~/.agent/skills/skills")
+        global_base = os.path.expanduser("~/.agent/skills")
         
         if active_globals and os.path.exists(global_base):
             for skill_id in active_globals:
