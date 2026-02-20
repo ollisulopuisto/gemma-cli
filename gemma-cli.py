@@ -108,12 +108,16 @@ class GemmaApp:
             style="class:status-bar"
         )
         
+        # Padding lines using half blocks to simulate 1/2 line height
+        padding_char_top = "▄" * 500
+        padding_char_bottom = "▀" * 500
+        
         self.layout = Layout(
             HSplit([
                 self.output_field,
-                Window(height=1, style="class:input-area"), # Top padding
+                Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line"),
                 self.input_field,
-                Window(height=1, style="class:input-area"), # Bottom padding
+                Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line"),
                 self.status_bar
             ]),
             focused_element=self.input_field
@@ -157,7 +161,8 @@ class GemmaApp:
                 'gemma-label': 'ansimagenta bold',
                 'system-label': 'ansiyellow italic',
                 'thought-label': 'ansigray italic',
-                'input-area': 'bg:#333333',
+                'input-area': 'bg:#333333 #ffffff',
+                'padding-line': 'fg:#333333 bg:#000000',
                 'status-bar': 'bg:#000000 #ffffff',
             })
         )
@@ -165,13 +170,13 @@ class GemmaApp:
     def get_status_text(self):
         status = "THINKING..." if self.is_thinking else ("WAITING APPROVAL" if self.waiting_for_approval else "IDLE")
         color = "ansired" if self.is_thinking or self.waiting_for_approval else "ansigreen"
-        dur_text = f" | <b>Last:</b> {self.last_duration:.2f}s" if self.last_duration > 0 else ""
+        dur_text = f" | Last: {self.last_duration:.2f}s" if self.last_duration > 0 else ""
         return HTML(
-            f" <b>User:</b> {self.ctx['username']} | "
-            f"<b>CWD:</b> {os.getcwd()} | "
-            f"<b>Sandbox:</b> {self.sb_summary} | "
-            f"<b>Skills:</b> {self.skills_summary} | "
-            f"<b>Status:</b> <{color}>{status}</{color}>{dur_text} "
+            f" User: {self.ctx['username']} | "
+            f"CWD: {os.getcwd()} | "
+            f"Sandbox: {self.sb_summary} | "
+            f"Skills: {self.skills_summary} | "
+            f"Status: <{color}>{status}</{color}>{dur_text} "
         )
 
     def log(self, text):
