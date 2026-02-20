@@ -127,7 +127,6 @@ class GemmaTUI:
         padding_char_top = "▄" * 500
         padding_char_bottom = "▀" * 500
         
-        # Store references to windows for dynamic styling
         self.top_padding = Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line")
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
@@ -190,6 +189,11 @@ class GemmaTUI:
                 'padding-line': 'fg:#333333 bg:#000000',
                 'padding-line-disabled': 'fg:#222222 bg:#000000',
                 'status-bar': 'bg:#000000',
+                'sl': '#888888 bold',
+                'sv': '#ffffff',
+                'st-thinking': '#ff0000 bold',
+                'st-waiting': '#ffff00 bold',
+                'st-idle': '#00ff00 bold',
             })
         )
         asyncio.create_task(self._spinner_loop())
@@ -202,31 +206,27 @@ class GemmaTUI:
             await asyncio.sleep(0.1)
 
     def get_status_text(self):
-        L = 'fg="#888888" b' # Label style
-        V = 'fg="#ffffff"'    # Value style
-        
-        # Escape dynamic content
         user = html.escape(self.ctx["username"])
         cwd = html.escape(os.getcwd())
         sb = html.escape(self.sb_summary)
         skills = html.escape(self.skills_summary)
 
         if self.is_thinking:
-            frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-            status = f'<style fg="ansired">{frame} THINKING...</style>'
+            frame = html.escape(self.spinner_frames[self.spinner_idx % len(self.spinner_frames)])
+            status = f'<st-thinking>{frame} THINKING...</st-thinking>'
         elif self.waiting_for_approval:
-            status = '<style fg="ansiyellow">WAITING APPROVAL</style>'
+            status = '<st-waiting>WAITING APPROVAL</st-waiting>'
         else:
-            status = '<style fg="ansigreen">IDLE (type /help)</style>'
+            status = '<st-idle>IDLE (type /help)</st-idle>'
             
-        dur = f' | <style {L}>Last:</style> <style {V}>{self.last_duration:.2f}s</style>' if self.last_duration > 0 else ""
+        dur = f' | <sl>Last:</sl> <sv>{self.last_duration:.2f}s</sv>' if self.last_duration > 0 else ""
         
         return HTML(
-            f' <style {L}>User:</style> <style {V}>{user}</style> | '
-            f'<style {L}>CWD:</style> <style {V}>{cwd}</style> | '
-            f'<style {L}>Sandbox:</style> <style {V}>{sb}</style> | '
-            f'<style {L}>Skills:</style> <style {V}>{skills}</style> | '
-            f'<style {L}>Status:</style> {status}{dur} '
+            f' <sl>User:</sl> <sv>{user}</sv> | '
+            f'<sl>CWD:</sl> <sv>{cwd}</sv> | '
+            f'<sl>Sandbox:</sl> <sv>{sb}</sv> | '
+            f'<sl>Skills:</sl> <sv>{skills}</sv> | '
+            f'<sl>Status:</sl> {status}{dur} '
         )
 
     def log(self, text):
@@ -357,29 +357,14 @@ Current Context (Sniffed from System):
 
 {skills_text}
 
-SPECIAL TOOLS (via python gemma_utils.py):
-1. **Smarter Editing**: To edit a file precisely, use:
-   ```tool_code
-   python gemma_utils.py edit path/to/file old.txt new.txt
-   ```
-2. **Sub-agents**: To delegate a complex sub-task to another agent:
-   ```tool_code
-   python gemma_utils.py subagent "Objective for the sub-agent"
-   ```
-3. **Notifications**: To send an alert to the user's configured webhook (Slack/Discord):
-   ```tool_code
-   python gemma_utils.py notify "Message to send"
-   ```
-
 RULES:
 1. You have REAL-TIME capabilities. USE A TOOL for system info.
-2. BE CONCISE. Do not repeat previous observations or reasoning steps unless requested.
+2. BE CONCISE. Do not repeat previous observations.
 3. To use a tool, output:
 ```tool_code
 command
 ```
-4. After receiving an "Observation:", provide the final answer or next command.
-5. Always explain reasoning briefly before a tool call."""
+4. After receiving an "Observation:", provide the final answer or next command."""
     app = GemmaTUI(config, args, ctx, system_prompt)
     await app.run()
 
