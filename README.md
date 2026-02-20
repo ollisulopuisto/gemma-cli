@@ -100,9 +100,16 @@ The tools use `config.yaml` for settings and secrets.
 - `--config PATH`: Use a specific configuration file.
 - `--sandbox {off,permissive,strict}`: Override the sandbox level.
 - `--no-sandbox`: Completely disable sandboxing.
+- `--allow-path PATH`: Grant temporary access to a specific path.
+- `--skill ID`: Activate a specific global skill by ID (folder name).
 - `--show-output`: Display the STDOUT/STDERR of tools directly in the UI.
 - `--show-reasoning`: Display the model's internal thinking process.
 - `--yes`: **Auto-approve all commands.** Use with extreme caution!
+
+### TUI Commands
+In the TUI session, you can use the following internal commands:
+- `/configure`: Interactively edit and save settings (sandbox level, whitelist, skills).
+- `exit` or `quit`: End the session.
 
 ## Testing
 

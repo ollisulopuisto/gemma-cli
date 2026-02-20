@@ -86,8 +86,13 @@ def update_config_whitelist(config_path, binary):
     whitelist = config.setdefault('sandbox', {}).setdefault('whitelist', [])
     if binary not in whitelist:
         whitelist.append(binary)
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+        save_config(config_path, config)
+
+def save_config(config_path, config):
+    """Saves the configuration object back to YAML."""
+    import yaml
+    with open(config_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config, f, default_flow_style=False)
 
 def get_sandbox_command(command, sandbox_config):
     """Returns the command wrapped in an OS-specific sandbox if possible."""

@@ -94,6 +94,7 @@ def main():
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
     parser.add_argument("--allow-path", action="append", help="Allow access to this path")
+    parser.add_argument("--skill", action="append", help="Activate a global skill (id)")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
     parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
@@ -104,15 +105,15 @@ def main():
         print(f"Error: Config file not found at {args.config}.")
         sys.exit(1)
 
+    # Overrides
     if args.no_sandbox: config['sandbox']['enabled'] = False
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
-        config['sandbox']['enabled'] = True
+        config['sandbox']['enabled'] = (args.sandbox != "off")
     if args.allow_path:
         config['sandbox'].setdefault('allowed_paths', []).extend(args.allow_path)
-
-    if args.yes:
-        print("\033[91m[SECURITY WARNING: Auto-approve (--yes) is enabled. Commands will run without confirmation.]\033[0m")
+    if args.skill:
+        config['sandbox'].setdefault('active_skills', []).extend(args.skill)
 
     ctx = get_system_context()
     skills_text, skill_files = get_skills_context(config)

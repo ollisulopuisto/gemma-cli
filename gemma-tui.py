@@ -11,13 +11,14 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, PathCompleter, ThreadedCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.styles import Style
-from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist, get_skills_context
+from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist, get_skills_context, save_config
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
@@ -99,12 +100,52 @@ def run_command(command, sandbox_config, console, config_path, show_output=False
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
+def handle_configure(config, config_path, console):
+    """Interactively edit config."""
+    console.print(Panel("[bold cyan]Interactive Configuration[/bold cyan]", border_style="cyan"))
+    
+    # 1. Sandbox Level
+    current_level = config['sandbox'].get('level', 'permissive')
+    new_level = Prompt.ask("Sandbox level", choices=["off", "permissive", "strict"], default=current_level)
+    config['sandbox']['level'] = new_level
+    config['sandbox']['enabled'] = (new_level != "off")
+
+    # 2. Whitelist
+    whitelist = config['sandbox'].get('whitelist', [])
+    console.print(f"Current whitelist: [green]{', '.join(whitelist)}[/green]")
+    if Confirm.ask("Add to whitelist?", default=False):
+        new_binary = Prompt.ask("Binary name to add")
+        if new_binary and new_binary not in whitelist:
+            whitelist.append(new_binary)
+            config['sandbox']['whitelist'] = whitelist
+
+    # 3. Active Skills
+    active_skills = config['sandbox'].get('active_skills', [])
+    console.print(f"Active global skills: [green]{', '.join(active_skills)}[/green]")
+    if Confirm.ask("Manage active skills?", default=False):
+        skill_to_add = Prompt.ask("Skill ID to activate (folder name in ~/.agent/skills/skills/)")
+        if skill_to_add and skill_to_add not in active_skills:
+            active_skills.append(skill_to_add)
+            config['sandbox']['active_skills'] = active_skills
+        
+        skill_to_remove = Prompt.ask("Skill ID to deactivate (empty to skip)")
+        if skill_to_remove in active_skills:
+            active_skills.remove(skill_to_remove)
+            config['sandbox']['active_skills'] = active_skills
+
+    if Confirm.ask("[bold yellow]Save changes to config.yaml?[/bold yellow]", default=True):
+        save_config(config_path, config)
+        console.print("[bold green]Configuration saved! Restart may be needed for some changes.[/bold green]")
+    else:
+        console.print("[yellow]Changes discarded for this session (will persist in memory until quit).[/yellow]")
+
 def main():
     parser = argparse.ArgumentParser(description="Gemma 3 Local Agent TUI - SKILLS ENABLED")
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
     parser.add_argument("--allow-path", action="append", help="Allow access to this path")
+    parser.add_argument("--skill", action="append", help="Activate a global skill (id)")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
     parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
@@ -115,16 +156,19 @@ def main():
         print(f"Error: Config file not found at {args.config}.")
         sys.exit(1)
 
+    # Overrides
     if args.no_sandbox: config['sandbox']['enabled'] = False
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
-        config['sandbox']['enabled'] = True
+        config['sandbox']['enabled'] = (args.sandbox != "off")
     if args.allow_path:
         config['sandbox'].setdefault('allowed_paths', []).extend(args.allow_path)
+    if args.skill:
+        config['sandbox'].setdefault('active_skills', []).extend(args.skill)
 
     console = Console()
     if args.yes:
-        console.print(Panel("[bold red]SECURITY WARNING: Auto-approve (--yes) is enabled. All tool commands will run without confirmation.[/bold red]", border_style="red"))
+        console.print(Panel("[bold red]SECURITY WARNING: Auto-approve (--yes) is enabled.[/bold red]", border_style="red"))
 
     ctx = get_system_context()
     skills_text, skill_files = get_skills_context(config)
@@ -159,7 +203,7 @@ date
         f"Config: {args.config} | Sandbox Config: {sb_summary}\n"
         f"Skills loaded: [green]{skills_label}[/green]\n"
         f"Output: {'[green]ON[/green]' if args.show_output else '[red]OFF[/red]'} | Reasoning: {'[green]ON[/green]' if args.show_reasoning else '[red]OFF[/red]'}\n"
-        "Type your request below. Type [bold red]'exit'[/bold red] or [bold red]'quit'[/bold red] to end the session.",
+        "Type your request below. Commands: /configure, exit, quit",
         border_style="cyan"
     ))
 
@@ -176,7 +220,14 @@ date
             console.print("\n[bold blue]User[/bold blue]")
             user_input = session.prompt("> ")
             if not user_input: continue
+            
+            # Internal Commands
+            if user_input.strip().lower() == "/configure":
+                handle_configure(config, args.config, console)
+                continue
+            
             if user_input.lower() in ["exit", "quit"]: break
+            
             messages.append({"role": "user", "content": user_input})
             while True:
                 with console.status("[bold green]Gemma is thinking...", spinner="dots"):
