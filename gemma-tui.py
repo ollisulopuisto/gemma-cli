@@ -15,6 +15,7 @@ from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML, ANSI
 from prompt_toolkit.widgets import TextArea, Frame
 from prompt_toolkit.styles import Style
@@ -145,6 +146,19 @@ class GemmaTUI:
         @self.kb.add("tab")
         def _(event): event.app.layout.focus_next()
 
+        # Approval hotkeys (no Enter needed)
+        @Condition
+        def is_waiting():
+            return self.waiting_for_approval is not None
+
+        @self.kb.add("y", filter=is_waiting)
+        @self.kb.add("n", filter=is_waiting)
+        @self.kb.add("s", filter=is_waiting)
+        @self.kb.add("p", filter=is_waiting)
+        def _(event):
+            _, resolve = self.waiting_for_approval
+            resolve(event.data.lower())
+
         @self.kb.add("enter")
         def _(event):
             if self.is_thinking and not self.waiting_for_approval:
@@ -207,7 +221,6 @@ class GemmaTUI:
         self.input_field.read_only = not enabled
         style = "class:input-area" if enabled else "class:input-area-disabled"
         padding_style = "class:padding-line" if enabled else "class:padding-line-disabled"
-        
         self.input_field.style = style
         self.top_padding.style = padding_style
         self.bottom_padding.style = padding_style
@@ -234,7 +247,6 @@ class GemmaTUI:
 
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
-        
         self._set_input_enabled(False)
         try:
             while True:
@@ -253,12 +265,11 @@ class GemmaTUI:
                         binaries = get_all_binaries(cmd)
                         persistent_whitelist = self.config.get('sandbox', {}).get('whitelist', [])
                         all_approved = self.args.yes or all(b in session_whitelist or b in persistent_whitelist for b in binaries)
-                        
                         if all_approved:
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
                             self.log(f"[System] Proposed Command: {cmd}")
-                            self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession whitelist, [p]ersistent whitelist: "
+                            self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession, [p]ersistent: "
                             self._set_input_enabled(True)
                             future = asyncio.get_event_loop().create_future()
                             self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
