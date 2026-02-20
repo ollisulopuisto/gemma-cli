@@ -189,7 +189,7 @@ class GemmaTUI:
             self.app.exit()
             return
 
-        self.log(f"User: {text}\n\n")
+        self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
         
         while True:
