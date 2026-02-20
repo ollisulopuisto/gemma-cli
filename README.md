@@ -8,6 +8,34 @@ This tool provides a "Gemini-CLI" like experience for a locally running Gemma 3 
 2.  **Authentication**: The server should be configured with Basic Auth.
 3.  **Python Environment**: Python 3.11+ with `uv` installed.
 
+## Local Model Setup
+
+This tool is optimized for running **Gemma 3** locally on Apple Silicon using `mlx-openai-server`.
+
+### 1. Install the Model Server
+You need a Python environment with `mlx-lm` installed:
+```bash
+pip install mlx-lm
+```
+
+### 2. Launch the Server
+Start the server with your chosen Gemma 3 variant. For example, to run the 27B model in 4-bit quantization:
+```bash
+python -m mlx_lm.server --model mlx-community/gemma-3-27b-it-qat-4bit --port 8000
+```
+
+### 3. VRAM / RAM Requirements
+Depending on your Mac's Unified Memory, choose the appropriate model size:
+
+| Model Size | Quantization | Required RAM (Approx.) | Recommended Mac |
+| :--- | :--- | :--- | :--- |
+| **Gemma 3 4B** | 4-bit | ~3-4 GB | Base M1/M2/M3 (8GB+) |
+| **Gemma 3 12B** | 4-bit | ~8-10 GB | 16GB RAM or more |
+| **Gemma 3 27B** | 4-bit | ~16-18 GB | 24GB-32GB RAM or more |
+| **Gemma 3 27B** | 8-bit | ~28-30 GB | 36GB-64GB RAM or more |
+
+*Note: Since Apple Silicon uses Unified Memory, the OS and other apps also consume this RAM. Always leave a few GBs of headroom.*
+
 ## Installation
 
 1.  Ensure your local Gemma 3 server is running.
