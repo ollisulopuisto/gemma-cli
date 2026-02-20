@@ -167,18 +167,12 @@ def get_sandbox_command(command, sandbox_config):
 (deny network*)
 (deny mach-lookup)"""
         else:
-            # Permissive: Allow reading system files, but deny writing everywhere except allowed paths.
-            # Also deny reading other users' folders by default.
+            # Permissive: Inherit user's read permissions (allow default), 
+            # but strictly deny writing everywhere except specified paths.
             profile = f"""(version 1)
 (allow default)
 (deny file-write* (subpath "/"))
-(allow file-write* {paths_str})
-(deny file-read* (subpath "/Users"))
-(allow file-read* {paths_str})
-(allow file-read* (subpath "/usr/lib"))
-(allow file-read* (subpath "/usr/share"))
-(allow file-read* (subpath "/lib"))
-(allow file-read* (subpath "/System"))"""
+(allow file-write* {paths_str})"""
         
         # Clean up the profile string to remove extra newlines/whitespace
         profile = "\n".join([line.strip() for line in profile.strip().split("\n")])
