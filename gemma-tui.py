@@ -183,8 +183,9 @@ date
                     console.print("\n[italic dim cyan]Thought:[/italic dim cyan]")
                     console.print(Panel(reasoning, border_style="dim cyan"))
 
-                console.print(f"\n[bold magenta]Gemma[/bold magenta] [dim](Response time: {gemma_duration:.2f}s)[/dim]")
+                console.print(f"\n[bold magenta]Gemma[/bold magenta]")
                 console.print(Markdown(content))
+                console.print(f"[dim italic]Response time: {gemma_duration:.2f}s[/dim italic]")
                 messages.append({"role": "assistant", "content": content})
                 
                 cmd = parse_tool_call(content)

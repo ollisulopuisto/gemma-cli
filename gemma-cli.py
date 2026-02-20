@@ -160,7 +160,8 @@ date
                 if reasoning and args.show_reasoning:
                     print(f"\n\033[36mThought: {reasoning}\033[0m")
 
-                print(f"\nGemma: {content} \033[90m(Response time: {gemma_duration:.2f}s)\033[0m\n")
+                print(f"\nGemma: {content}")
+                print(f"\033[90m(Response time: {gemma_duration:.2f}s)\033[0m\n")
                 messages.append({"role": "assistant", "content": content})
                 
                 cmd = parse_tool_call(content)
