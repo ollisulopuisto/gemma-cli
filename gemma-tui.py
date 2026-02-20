@@ -27,6 +27,11 @@ from gemma_utils import (
 
 # --- Utilities ---
 
+def strip_ansi(text):
+    """Removes ANSI escape sequences from a string."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
 class ChatLexer(Lexer):
     """Simple lexer to colorize chat lines based on prefixes."""
     def lex_document(self, document):
@@ -57,6 +62,7 @@ async def call_gemma_async(messages, config):
     auth = server.get('auth', {})
     url = server.get('url')
     
+    start_time = asyncio.get_event_loop().time()
     async with httpx.AsyncClient() as client:
         response = await client.post(
             url, json=payload, 
@@ -66,7 +72,8 @@ async def call_gemma_async(messages, config):
         response.raise_for_status()
         data = response.json()
         message = data['choices'][0]['message']
-        return message.get('content', ''), message.get('reasoning_content', '')
+        end_time = asyncio.get_event_loop().time()
+        return message.get('content', ''), message.get('reasoning_content', end_time - start_time)
 
 async def run_command_async(command, sandbox_config):
     full_command, _ = get_sandbox_command(command, sandbox_config)
@@ -74,8 +81,8 @@ async def run_command_async(command, sandbox_config):
         full_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     stdout, stderr = await process.communicate()
-    # Note: We return raw bytes and decode it in the TUI using ANSI support
-    return stdout.decode() + stderr.decode()
+    output = f"STDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}"
+    return strip_ansi(output)
 
 # --- TUI Application ---
 
@@ -91,20 +98,24 @@ class GemmaTUI:
         self.waiting_for_approval = None 
         
         # UI Components
-        # Use a Window with a FormattedTextControl for the output to support ANSI/HTML properly
-        self.output_buffer = Buffer()
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
-        self.input_field = TextArea(height=1, prompt="User: ", multiline=False, focusable=True)
+        self.input_field = TextArea(height=1, prompt="User: ", multiline=False, focusable=True, style="class:input-area")
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
         self.status_bar = Window(
             content=FormattedTextControl(self.get_status_text),
             height=1,
-            style="reverse"
+            style="class:status-bar"
         )
         
         self.layout = Layout(
-            HSplit([self.output_field, self.input_field, self.status_bar]),
+            HSplit([
+                self.output_field,
+                Window(height=1, style="class:input-area"), # Top padding
+                self.input_field,
+                Window(height=1, style="class:input-area"), # Bottom padding
+                self.status_bar
+            ]),
             focused_element=self.input_field
         )
         
@@ -146,7 +157,8 @@ class GemmaTUI:
                 'gemma-label': 'ansimagenta bold',
                 'system-label': 'ansiyellow italic',
                 'thought-label': 'ansigray italic',
-                'status': 'reverse',
+                'input-area': 'bg:#333333',
+                'status-bar': 'bg:#000000 #ffffff',
             })
         )
 
@@ -163,9 +175,7 @@ class GemmaTUI:
         )
 
     def log(self, text):
-        # We append to the text area
         self.output_field.text += text + "\n"
-        # Auto-scroll
         self.output_field.buffer.cursor_position = len(self.output_field.text)
 
     async def handle_input(self, text):
@@ -204,7 +214,6 @@ class GemmaTUI:
                         
                         ans = await future
                         if ans in ['y', 's', 'p']:
-                            # Note: Whitelist logic can be added here
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
                             obs = "User denied execution."
