@@ -187,7 +187,9 @@ date
                 user_input = await session.prompt_async(HTML('<style color="cyan">User: </style>'))
             
             if not user_input.strip(): continue
-            if user_input.lower() in ["exit", "quit"]: break
+            if user_input.lower() in ["exit", "quit"]:
+                print("\n\033[92mGoodbye! Happy hacking! 💎\033[0m")
+                break
             
             messages.append({"role": "user", "content": user_input})
             while True:
@@ -208,8 +210,12 @@ date
                     messages.append({"role": "user", "content": f"Observation:\n{observation}"})
                     continue
                 else: break
-        except KeyboardInterrupt: continue
-        except EOFError: break
+        except KeyboardInterrupt:
+            print("\n\033[93mSession interrupted. Goodbye!\033[0m")
+            break
+        except EOFError:
+            print("\n\033[92mGoodbye! (EOF detected)\033[0m")
+            break
         except Exception as e: print(f"Error: {e}")
 
 if __name__ == "__main__":

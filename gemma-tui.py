@@ -253,7 +253,9 @@ date
                 handle_configure(config, args.config, console)
                 continue
             
-            if user_input.lower() in ["exit", "quit"]: break
+            if user_input.lower() in ["exit", "quit"]:
+                console.print("\n[bold green]Goodbye! Happy hacking! 💎[/bold green]")
+                break
             
             messages.append({"role": "user", "content": user_input})
             while True:
@@ -277,8 +279,12 @@ date
                     messages.append({"role": "user", "content": f"Observation:\n{observation}"})
                     continue
                 else: break
-        except KeyboardInterrupt: continue
-        except EOFError: break
+        except KeyboardInterrupt: 
+            console.print("\n[bold yellow]Session interrupted. Goodbye![/bold yellow]")
+            break
+        except EOFError: 
+            console.print("\n[bold green]Goodbye! (EOF detected)[/bold green]")
+            break
         except Exception as e: console.print(f"[bold red]Error:[/bold red] {e}")
 
 if __name__ == "__main__":
