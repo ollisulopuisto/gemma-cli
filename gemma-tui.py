@@ -130,6 +130,8 @@ class GemmaTUI:
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
         
+        # Setup cursor conditions
+        self.output_field.window.cursor = Condition(lambda: False)
         self.input_field.window.cursor = Condition(lambda: self.input_enabled)
 
         self.layout = Layout(
@@ -165,7 +167,7 @@ class GemmaTUI:
 
         @self.kb.add("enter")
         def _(event):
-            if self.is_thinking and not self.waiting_for_approval:
+            if not self.input_enabled and not self.waiting_for_approval:
                 return
             content = self.input_field.text.strip()
             if not content: return
@@ -212,9 +214,7 @@ class GemmaTUI:
             status = HTML('<style color="ansiyellow">WAITING APPROVAL</style>')
         else:
             status = HTML('<style color="ansigreen">IDLE (type /help)</style>')
-            
         dur_text = HTML(f' | <class name="status-label">Last:</class> <class name="status-value">{self.last_duration:.2f}s</class>') if self.last_duration > 0 else ""
-        
         return HTML(
             f' <class name="status-label">User:</class> <class name="status-value">{self.ctx["username"]}</class> | '
             f'<class name="status-label">CWD:</class> <class name="status-value">{os.getcwd()}</class> | '
@@ -240,6 +240,10 @@ class GemmaTUI:
         self.top_padding.style = padding_style
         self.bottom_padding.style = padding_style
         self.prompt_window.style = style
+        if not enabled:
+            self.app.layout.focus(self.output_field)
+        else:
+            self.app.layout.focus(self.input_field)
 
     async def handle_input(self, text):
         global session_whitelist
@@ -273,7 +277,6 @@ class GemmaTUI:
                     if reasoning and self.args.show_reasoning: self.log(f"[Thought]\n{reasoning}\n")
                     self.log(f"Gemma: {content}\n")
                     self.messages.append({"role": "assistant", "content": content})
-                    
                     cmd = parse_tool_call(content)
                     if cmd:
                         binaries = get_all_binaries(cmd)
@@ -313,7 +316,6 @@ class GemmaTUI:
         finally:
             self._set_input_enabled(True)
             self.app.invalidate()
-            self.app.layout.focus(self.input_field)
 
     async def run(self):
         self.log(f"Gemma TUI Agent started. Config: {self.args.config}\n")
