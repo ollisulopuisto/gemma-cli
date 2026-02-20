@@ -99,7 +99,7 @@ class GemmaApp:
         
         # UI Components
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
-        self.input_field = TextArea(height=1, prompt="User: ", multiline=False, focusable=True, style="class:input-area")
+        self.input_field = TextArea(height=1, prompt=" User: ", multiline=False, focusable=True, style="class:input-area")
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
         self.status_bar = Window(
@@ -144,11 +144,11 @@ class GemmaApp:
                 cmd, resolve = self.waiting_for_approval
                 if content.lower() in ['y', 'yes', 's', 'p']:
                     self.waiting_for_approval = None
-                    self.input_field.prompt = "User: "
+                    self.input_field.prompt = " User: "
                     asyncio.create_task(resolve(content.lower()))
                 else:
                     self.waiting_for_approval = None
-                    self.input_field.prompt = "User: "
+                    self.input_field.prompt = " User: "
                     self.log("[System] Command denied.")
                     asyncio.create_task(resolve('n'))
             else:
@@ -211,7 +211,7 @@ class GemmaApp:
                         obs = await run_command_async(cmd, self.config['sandbox'])
                     else:
                         self.log(f"[System] Proposed Command: {cmd}")
-                        self.input_field.prompt = f"Execute '{cmd}'? (y/n/s/p): "
+                        self.input_field.prompt = f" Execute '{cmd}'? (y/n/s/p): "
                         
                         future = asyncio.get_event_loop().create_future()
                         self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
