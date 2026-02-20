@@ -7,6 +7,7 @@ import yaml
 import argparse
 import sys
 import re
+import html
 from datetime import datetime
 
 from prompt_toolkit.application import Application
@@ -126,6 +127,7 @@ class GemmaTUI:
         padding_char_top = "▄" * 500
         padding_char_bottom = "▀" * 500
         
+        # Store references to windows for dynamic styling
         self.top_padding = Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line")
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
@@ -203,6 +205,12 @@ class GemmaTUI:
         L = 'fg="#888888" b' # Label style
         V = 'fg="#ffffff"'    # Value style
         
+        # Escape dynamic content
+        user = html.escape(self.ctx["username"])
+        cwd = html.escape(os.getcwd())
+        sb = html.escape(self.sb_summary)
+        skills = html.escape(self.skills_summary)
+
         if self.is_thinking:
             frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
             status = f'<style fg="ansired">{frame} THINKING...</style>'
@@ -214,10 +222,10 @@ class GemmaTUI:
         dur = f' | <style {L}>Last:</style> <style {V}>{self.last_duration:.2f}s</style>' if self.last_duration > 0 else ""
         
         return HTML(
-            f' <style {L}>User:</style> <style {V}>{self.ctx["username"]}</style> | '
-            f'<style {L}>CWD:</style> <style {V}>{os.getcwd()}</style> | '
-            f'<style {L}>Sandbox:</style> <style {V}>{self.sb_summary}</style> | '
-            f'<style {L}>Skills:</style> <style {V}>{self.skills_summary}</style> | '
+            f' <style {L}>User:</style> <style {V}>{user}</style> | '
+            f'<style {L}>CWD:</style> <style {V}>{cwd}</style> | '
+            f'<style {L}>Sandbox:</style> <style {V}>{sb}</style> | '
+            f'<style {L}>Skills:</style> <style {V}>{skills}</style> | '
             f'<style {L}>Status:</style> {status}{dur} '
         )
 
