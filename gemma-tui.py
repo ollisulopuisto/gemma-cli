@@ -64,7 +64,6 @@ async def call_gemma_async(messages, config):
     
     start_time = asyncio.get_event_loop().time()
     async with httpx.AsyncClient() as client:
-        # Long timeout for local models
         response = await client.post(
             url, json=payload, 
             auth=(auth.get('username'), auth.get('password')),
@@ -88,14 +87,13 @@ async def run_command_async(command, sandbox_config):
 # --- TUI Application ---
 
 class GemmaTUI:
-    def __init__(self, config, args, ctx, skills_summary, skills_text):
+    def __init__(self, config, args, ctx, system_prompt):
         self.config = config
         self.args = args
         self.ctx = ctx
-        self.skills_summary = skills_summary
         self.is_thinking = False
         self.last_duration = 0.0
-        self.messages = [{"role": "system", "content": skills_text}]
+        self.messages = [{"role": "system", "content": system_prompt}]
         self.waiting_for_approval = None 
         
         # UI Components
@@ -176,9 +174,14 @@ class GemmaTUI:
             f" User: {self.ctx['username']} | "
             f"CWD: {os.getcwd()} | "
             f"Sandbox: {self.sb_summary} | "
-            f"Skills: {self.skills_summary} | "
+            f"Skills: {self.log_skills()} | "
             f"Status: <{color}>{status}</{color}>{dur_text} "
         )
+
+    def log_skills(self):
+        # Helper to get skills for status bar
+        _, skill_files = get_skills_context(self.config)
+        return ", ".join(skill_files) if skill_files else "None"
 
     def log(self, text):
         self.output_field.text += text + "\n"
@@ -220,7 +223,6 @@ class GemmaTUI:
                         
                         ans = await future
                         if ans in ['y', 's', 'p']:
-                            # Note: Whitelist logic can be added here
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
                             obs = "User denied execution."
@@ -268,9 +270,43 @@ async def main_async():
     
     ctx = get_system_context()
     skills_text, skill_files = get_skills_context(config)
-    skills_summary = ", ".join(skill_files) if skill_files else "None"
+    
+    system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
+Current Context (Sniffed from System):
+- OS: {ctx['os']} ({ctx['os_release']})
+- User: {ctx['username']}
+- Directory: {ctx['cwd']}
+- Time: {ctx['now']}
+- Shell: {ctx['shell']}
 
-    app = GemmaTUI(config, args, ctx, skills_summary, skills_text)
+{skills_text}
+
+SPECIAL TOOLS (via python gemma_utils.py):
+1. **Smarter Editing**: To edit a file precisely, use:
+   ```tool_code
+   # Prepare old.txt and new.txt with EXACT content, then:
+   python gemma_utils.py edit path/to/file old.txt new.txt
+   ```
+2. **Sub-agents**: To delegate a complex sub-task to another agent:
+   ```tool_code
+   python gemma_utils.py subagent "Objective for the sub-agent"
+   ```
+3. **Notifications**: To send an alert to the user's configured webhook (Slack/Discord):
+   ```tool_code
+   python gemma_utils.py notify "Message to send"
+   ```
+
+RULES:
+1. You have REAL-TIME capabilities. If asked for the time, weather (via curl), system stats, or file info, USE A TOOL.
+2. DO NOT say "I am a language model" or "I don't have access to real-time info". You HAVE access via the shell.
+3. To use a tool, you MUST output a code block like this:
+```tool_code
+date
+```
+4. After receiving an "Observation:", analyze the output and provide the final answer or next command.
+5. Always explain your reasoning briefly before a tool call."""
+
+    app = GemmaTUI(config, args, ctx, system_prompt)
     await app.run()
 
 if __name__ == "__main__":
