@@ -8,7 +8,7 @@ import os
 import yaml
 import argparse
 import time
-from gemma_utils import parse_tool_call, get_system_context
+from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
@@ -16,31 +16,8 @@ DEFAULT_CONFIG_PATH = "config.yaml"
 def load_config(config_path):
     if not os.path.exists(config_path):
         return None
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
-
-def get_sandbox_profile(level, allowed_paths):
-    cwd = os.getcwd()
-    paths_str = "\n".join([f'    (subpath "{p}")' for p in allowed_paths + [cwd]])
-    
-    if level == "strict":
-        return f"""(version 1)
-(deny default)
-(allow process-exec)
-(allow sysctl-read)
-(allow file-read* {paths_str})
-(allow file-write* {paths_str})
-(deny network*)
-"""
-    return f"""(version 1)
-(allow default)
-(deny file-write*
-    (subpath "/")
-)
-(allow file-write*
-{paths_str}
-)
-"""
 
 def call_gemma(messages, config):
     server = config.get('server', {})
@@ -61,16 +38,10 @@ def call_gemma(messages, config):
     return message.get('content', ''), message.get('reasoning_content', '')
 
 def run_command(command, sandbox_config, show_output=False):
-    enabled = sandbox_config.get('enabled', True)
-    level = sandbox_config.get('level', 'permissive')
+    full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
     
-    if enabled and level != "off":
-        profile = get_sandbox_profile(level, sandbox_config.get('allowed_paths', []))
-        print(f"\033[93m[Executing ({level} Sandbox): {command}]\033[0m")
-        full_command = f"sandbox-exec -p '{profile}' {command}"
-    else:
-        print(f"\033[91m[Executing (UNSANDBOXED): {command}]\033[0m")
-        full_command = command
+    label_color = "\033[93m" if "Sandbox" in sandbox_label else "\033[91m"
+    print(f"{label_color}[Executing ({sandbox_label}): {command}]\033[0m")
 
     start_time = time.perf_counter()
     try:
@@ -79,7 +50,6 @@ def run_command(command, sandbox_config, show_output=False):
         duration = end_time - start_time
         
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        
         print(f"\033[3mCommand finished in {duration:.3f} seconds\033[0m")
         
         if show_output:
@@ -127,8 +97,10 @@ date
 5. Always explain your reasoning briefly before a tool call."""
 
     messages = [{"role": "system", "content": system_prompt}]
-    sandbox_status = f"{config['sandbox']['level']}" if config['sandbox']['enabled'] else "OFF"
-    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox: {sandbox_status}. Config: {args.config}. Type 'exit' to quit.")
+    sb_config = config['sandbox']
+    sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
+    
+    print(f"Gemma CLI Agent started (v2026.02.20). Sandbox Config: {sb_summary}. Config: {args.config}. Type 'exit' to quit.")
     
     while True:
         try:

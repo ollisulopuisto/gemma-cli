@@ -14,6 +14,9 @@ server:
 #   - off: No sandboxing
 #   - permissive: (Default) Read all, write to CWD and /tmp
 #   - strict: Read/Write ONLY to CWD, no network for tool execution
+#
+# NOTE: Native sandboxing is currently implemented for macOS (via sandbox-exec).
+# On Linux and Windows, it currently falls back to Unsandboxed mode.
 sandbox:
   level: "permissive"
   enabled: true

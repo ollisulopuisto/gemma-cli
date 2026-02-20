@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.prompt import Prompt
-from gemma_utils import parse_tool_call, get_system_context
+from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
@@ -20,31 +20,8 @@ DEFAULT_CONFIG_PATH = "config.yaml"
 def load_config(config_path):
     if not os.path.exists(config_path):
         return None
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
-
-def get_sandbox_profile(level, allowed_paths):
-    cwd = os.getcwd()
-    paths_str = "\n".join([f'    (subpath "{p}")' for p in allowed_paths + [cwd]])
-    
-    if level == "strict":
-        return f"""(version 1)
-(deny default)
-(allow process-exec)
-(allow sysctl-read)
-(allow file-read* {paths_str})
-(allow file-write* {paths_str})
-(deny network*)
-"""
-    return f"""(version 1)
-(allow default)
-(deny file-write*
-    (subpath "/")
-)
-(allow file-write*
-{paths_str}
-)
-"""
 
 def call_gemma(messages, config):
     server = config.get('server', {})
@@ -65,26 +42,19 @@ def call_gemma(messages, config):
     return message.get('content', ''), message.get('reasoning_content', '')
 
 def run_command(command, sandbox_config, console, show_output=False):
-    enabled = sandbox_config.get('enabled', True)
-    level = sandbox_config.get('level', 'permissive')
+    full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
     
-    if enabled and level != "off":
-        profile = get_sandbox_profile(level, sandbox_config.get('allowed_paths', []))
-        console.print(Panel(f"[bold yellow]Executing ({level} Sandbox):[/bold yellow] {command}", border_style="yellow"))
-        full_command = f"sandbox-exec -p '{profile}' {command}"
-    else:
-        console.print(Panel(f"[bold red]Executing (UNSANDBOXED):[/bold red] {command}", border_style="red"))
-        full_command = command
+    label_style = "yellow" if "Sandbox" in sandbox_label else "red"
+    console.print(Panel(f"[bold {label_style}]Executing ({sandbox_label}):[/bold {label_style}] {command}", border_style=label_style))
 
     start_time = time.perf_counter()
     try:
+        # shell=True is needed for shell command strings on Windows/Linux
         result = subprocess.run(full_command, shell=True, capture_output=True, text=True, timeout=30)
         end_time = time.perf_counter()
         duration = end_time - start_time
         
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        
-        # Display timing info
         console.print(f"[dim italic]Command finished in {duration:.3f} seconds[/dim italic]")
         
         if show_output:
@@ -134,11 +104,14 @@ date
 5. Always explain your reasoning briefly before a tool call."""
 
     messages = [{"role": "system", "content": system_prompt}]
-    sandbox_status = f"[green]{config['sandbox']['level']}[/green]" if config['sandbox']['enabled'] else "[red]OFF[/red]"
+    
+    # We display a simplified sandbox status now as it's computed per command
+    sb_config = config['sandbox']
+    sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
     
     console.print(Panel.fit(
         f"[bold cyan]Gemma 3 Local Agent TUI (v2026.02.20)[/bold cyan]\n"
-        f"Config: {args.config} | Sandbox: {sandbox_status} | Output: {'[green]ON[/green]' if args.show_output else '[red]OFF[/red]'} | Reasoning: {'[green]ON[/green]' if args.show_reasoning else '[red]OFF[/red]'}\n"
+        f"Config: {args.config} | Sandbox Config: {sb_summary} | Output: {'[green]ON[/green]' if args.show_output else '[red]OFF[/red]'} | Reasoning: {'[green]ON[/green]' if args.show_reasoning else '[red]OFF[/red]'}\n"
         "Type your request below. Type [bold red]'exit'[/bold red] or [bold red]'quit'[/bold red] to end the session.",
         border_style="cyan"
     ))

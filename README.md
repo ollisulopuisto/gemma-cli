@@ -54,7 +54,16 @@ Depending on your Mac's Unified Memory, choose the appropriate model size:
 
 The tools use `config.yaml` for settings and secrets.
 
-### Sandboxing Levels
+### Cross-Platform Support
+
+Gemma-CLI is designed to run on macOS, Linux, and modern Windows (via `uv` or Python).
+
+- **Sandboxing**: 
+  - **macOS**: Native sandboxing via `sandbox-exec` (Seatbelt) is fully supported.
+  - **Linux/Windows**: Currently falls back to an "Unsandboxed" mode for tool execution. Future versions may include native sandboxing for these platforms.
+- **Shells**: The tool automatically detects your OS and informs the model whether it should use `bash/zsh` (Unix) or `cmd.exe/powershell` (Windows) syntax.
+
+## Sandboxing Levels
 - **`permissive`** (Default): Allows full read access, but restricts writes to the current project directory and `/tmp`.
 - **`strict`**: Restricts both read and write access EXCLUSIVELY to the current project directory. Disables network access for tool execution.
 - **`off`**: No sandboxing applied.
