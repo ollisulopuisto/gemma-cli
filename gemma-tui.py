@@ -73,7 +73,7 @@ async def call_gemma_async(messages, config):
         data = response.json()
         message = data['choices'][0]['message']
         end_time = asyncio.get_event_loop().time()
-        return message.get('content', ''), message.get('reasoning_content', end_time - start_time)
+        return message.get('content', ''), message.get('reasoning_content', ''), end_time - start_time
 
 async def run_command_async(command, sandbox_config):
     full_command, _ = get_sandbox_command(command, sandbox_config)
