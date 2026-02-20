@@ -96,6 +96,10 @@ class GemmaApp:
         self.messages = [{"role": "system", "content": system_prompt}]
         self.waiting_for_approval = None 
         
+        # Spinner state
+        self.spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self.spinner_idx = 0
+        
         # UI Components
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
         self.input_field = TextArea(height=1, multiline=False, focusable=True, style="class:input-area")
@@ -156,10 +160,29 @@ class GemmaApp:
                 'status-bar': 'bg:#000000 #ffffff',
             })
         )
+        
+        # Start background tasks
+        asyncio.create_task(self._spinner_loop())
+
+    async def _spinner_loop(self):
+        while True:
+            if self.is_thinking:
+                self.spinner_idx += 1
+                self.app.invalidate()
+            await asyncio.sleep(0.1)
 
     def get_status_text(self):
-        status = "THINKING..." if self.is_thinking else ("WAITING APPROVAL" if self.waiting_for_approval else "IDLE")
-        color = "ansired" if self.is_thinking or self.waiting_for_approval else "ansigreen"
+        if self.is_thinking:
+            frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
+            status = f"{frame} THINKING..."
+            color = "ansired"
+        elif self.waiting_for_approval:
+            status = "WAITING APPROVAL"
+            color = "ansiyellow"
+        else:
+            status = "IDLE"
+            color = "ansigreen"
+            
         dur_text = f" | Last: {self.last_duration:.2f}s" if self.last_duration > 0 else ""
         return HTML(f" User: {self.ctx['username']} | CWD: {os.getcwd()} | Sandbox: {self.sb_summary} | Status: <{color}>{status}</{color}>{dur_text} ")
 
@@ -198,7 +221,6 @@ class GemmaApp:
                         self.waiting_for_approval = None
                         self.prompt_label.text = " User: "
                         self.log(f"[System] User selected: {ans}")
-                        
                         if ans in ['y', 's', 'p']:
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
