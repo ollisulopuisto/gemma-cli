@@ -22,7 +22,7 @@ from prompt_toolkit.lexers import Lexer
 
 from gemma_utils import (
     parse_tool_call, get_system_context, get_sandbox_command, 
-    get_all_binaries, update_config_whitelist, get_skills_context
+    get_all_binaries, get_base_binary, update_config_whitelist, get_skills_context
 )
 
 # --- Utilities ---
@@ -85,6 +85,8 @@ async def run_command_async(command, sandbox_config):
     return strip_ansi(output)
 
 # --- TUI Application ---
+
+session_whitelist = set()
 
 class GemmaApp:
     def __init__(self, config, args, ctx, system_prompt):
@@ -197,6 +199,7 @@ class GemmaApp:
                 f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {strip_ansi(text)}\n")
 
     async def handle_input(self, text):
+        global session_whitelist
         if text.lower() in ["exit", "quit"]: self.app.exit(); return
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
@@ -214,11 +217,17 @@ class GemmaApp:
                 
                 cmd = parse_tool_call(content)
                 if cmd:
-                    if self.args.yes:
+                    binaries = get_all_binaries(cmd)
+                    persistent_whitelist = self.config.get('sandbox', {}).get('whitelist', [])
+                    
+                    # Check if all binaries are already approved
+                    all_approved = self.args.yes or all(b in session_whitelist or b in persistent_whitelist for b in binaries)
+                    
+                    if all_approved:
                         obs = await run_command_async(cmd, self.config['sandbox'])
                     else:
                         self.log(f"[System] Proposed Command: {cmd}")
-                        self.prompt_label.text = " Execute? (y/n/s/p): "
+                        self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession whitelist, [p]ersistent whitelist: "
                         future = asyncio.get_event_loop().create_future()
                         self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
                         self.app.invalidate()
@@ -226,7 +235,14 @@ class GemmaApp:
                         self.waiting_for_approval = None
                         self.prompt_label.text = " User: "
                         self.log(f"[System] User selected: {ans}")
+                        
                         if ans in ['y', 's', 'p']:
+                            if ans == 's':
+                                for b in binaries: session_whitelist.add(b)
+                            elif ans == 'p':
+                                for b in binaries:
+                                    update_config_whitelist(self.args.config, b)
+                                    session_whitelist.add(b)
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
                             obs = "User denied execution."
