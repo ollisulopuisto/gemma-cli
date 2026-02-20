@@ -1,0 +1,24 @@
+# Gemma-CLI Configuration Template
+# Copy this file to config.yaml and update with your actual values.
+
+# Model Server Settings
+server:
+  url: "http://localhost:8000/v1/chat/completions"
+  model: "mlx-community/gemma-3-27b-it-qat-4bit"
+  auth:
+    username: "lorem"
+    password: "ipsum"
+
+# Sandboxing Settings
+# Levels: 
+#   - off: No sandboxing
+#   - permissive: (Default) Read all, write to CWD and /tmp
+#   - strict: Read/Write ONLY to CWD, no network for tool execution
+sandbox:
+  level: "permissive"
+  enabled: true
+  allowed_paths:
+    - "/tmp"
+    - "/private/tmp"
+    - "/var/tmp"
+    - "/private/var/tmp"

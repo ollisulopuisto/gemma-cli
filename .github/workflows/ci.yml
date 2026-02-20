@@ -1,0 +1,53 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Setup Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync
+      - name: Run tests
+        run: uv run pytest
+
+  update-version:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set current date
+        id: date
+        run: echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+      - name: Update version in files
+        run: |
+          VERSION="${{ steps.date.outputs.date }}"
+          # Update pyproject.toml
+          sed -i "s/version = ".*"/version = "$VERSION"/" pyproject.toml
+          # Update gemma-cli.py
+          sed -i "s/(v[0-9.]*)/(v$VERSION)/" gemma-cli.py
+          # Update gemma-tui.py
+          sed -i "s/(v[0-9.]*)/(v$VERSION)/" gemma-tui.py
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "chore: bump version to ${{ steps.date.outputs.date }} [skip ci]"
+            git push
+          fi
