@@ -91,6 +91,7 @@ class GemmaApp:
         self.ctx = ctx
         self.skills_summary = skills_summary
         self.is_thinking = False
+        self.last_duration = 0.0
         self.messages = [{"role": "system", "content": skills_text}]
         self.waiting_for_approval = None # Stores (command, callback)
         
@@ -155,11 +156,13 @@ class GemmaApp:
     def get_status_text(self):
         status = "THINKING..." if self.is_thinking else ("WAITING APPROVAL" if self.waiting_for_approval else "IDLE")
         color = "ansired" if self.is_thinking or self.waiting_for_approval else "ansigreen"
+        dur_text = f" | <b>Last:</b> {self.last_duration:.2f}s" if self.last_duration > 0 else ""
         return HTML(
             f" <b>User:</b> {self.ctx['username']} | "
             f"<b>CWD:</b> {os.getcwd()} | "
             f"<b>Sandbox:</b> {self.sb_summary} | "
-            f"<b>Status:</b> <{color}>{status}</{color}> "
+            f"<b>Skills:</b> {self.skills_summary} | "
+            f"<b>Status:</b> <{color}>{status}</{color}>{dur_text} "
         )
 
     def log(self, text):
@@ -178,8 +181,9 @@ class GemmaApp:
             self.is_thinking = True
             self.app.invalidate()
             try:
-                content, reasoning = await call_gemma_async(self.messages, self.config)
+                content, reasoning, duration = await call_gemma_async(self.messages, self.config)
                 self.is_thinking = False
+                self.last_duration = duration
                 
                 if reasoning and self.args.show_reasoning:
                     self.log(f"[Thought]\n{reasoning}\n")
