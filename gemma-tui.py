@@ -17,11 +17,23 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.widgets import TextArea, Frame
 from prompt_toolkit.styles import Style
+from prompt_toolkit.lexers import Lexer
 
-from gemma_utils import (
-    parse_tool_call, get_system_context, get_sandbox_command, 
-    get_all_binaries, update_config_whitelist, get_skills_context
-)
+class ChatLexer(Lexer):
+    """Simple lexer to colorize chat lines based on prefixes."""
+    def lex_document(self, document):
+        def get_line(lineno):
+            line = document.lines[lineno]
+            if line.startswith("User:"):
+                return [("class:user-label", "User:"), ("", line[5:])]
+            elif line.startswith("Gemma:"):
+                return [("class:gemma-label", "Gemma:"), ("", line[6:])]
+            elif line.startswith("[System]") or line.startswith("[Tool Output]") or line.startswith("[Error]"):
+                return [("class:system-label", line)]
+            elif line.startswith("[Thought]"):
+                return [("class:thought-label", line)]
+            return [("", line)]
+        return get_line
 
 # --- Core Logic ---
 
@@ -71,7 +83,7 @@ class GemmaTUI:
         self.messages = [{"role": "system", "content": skills_text}]
         
         # UI Components
-        self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True)
+        self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
         self.input_field = TextArea(height=1, prompt="User: ", multiline=False, focusable=True)
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
@@ -117,7 +129,10 @@ class GemmaTUI:
             full_screen=True,
             mouse_support=True,
             style=Style.from_dict({
-                'frame.label': 'green bold',
+                'user-label': 'ansicyan bold',
+                'gemma-label': 'ansimagenta bold',
+                'system-label': 'ansiyellow italic',
+                'thought-label': 'ansigray italic',
                 'status': 'reverse',
             })
         )
