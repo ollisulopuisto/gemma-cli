@@ -110,6 +110,10 @@ class GemmaTUI:
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
         self.input_field = TextArea(height=1, multiline=False, focusable=True, style="class:input-area")
         self.prompt_label = FormattedTextControl(" User: ")
+        self.input_container = VSplit([
+            Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area"),
+            self.input_field,
+        ])
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
         self.status_bar = Window(
@@ -125,10 +129,7 @@ class GemmaTUI:
             HSplit([
                 self.output_field,
                 Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line"),
-                VSplit([
-                    Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area"),
-                    self.input_field,
-                ]),
+                self.input_container,
                 Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line"),
                 self.status_bar
             ]),
@@ -164,7 +165,9 @@ class GemmaTUI:
                 'system-label': 'ansiyellow italic',
                 'thought-label': 'ansigray italic',
                 'input-area': 'bg:#333333 #ffffff',
+                'input-area-disabled': 'bg:#222222 #888888',
                 'padding-line': 'fg:#333333 bg:#000000',
+                'padding-line-disabled': 'fg:#222222 bg:#000000',
                 'status-bar': 'bg:#000000 #ffffff',
             })
         )
@@ -200,6 +203,19 @@ class GemmaTUI:
             with open(self.log_path, 'a', encoding='utf-8') as f:
                 f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {strip_ansi(text)}\n")
 
+    def _set_input_enabled(self, enabled: bool):
+        self.input_field.read_only = not enabled
+        style = "class:input-area" if enabled else "class:input-area-disabled"
+        padding_style = "class:padding-line" if enabled else "class:padding-line-disabled"
+        
+        self.input_field.style = style
+        # Update container and padding children styles
+        for window in self.layout.get_visible_windows():
+            if window.style == "class:input-area" or window.style == "class:input-area-disabled":
+                window.style = style
+            elif window.style == "class:padding-line" or window.style == "class:padding-line-disabled":
+                window.style = padding_style
+
     async def handle_input(self, text):
         global session_whitelist
         
@@ -226,7 +242,7 @@ class GemmaTUI:
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
         
-        self.input_field.read_only = True
+        self._set_input_enabled(False)
         try:
             while True:
                 self.is_thinking = True
@@ -250,14 +266,14 @@ class GemmaTUI:
                         else:
                             self.log(f"[System] Proposed Command: {cmd}")
                             self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession whitelist, [p]ersistent whitelist: "
-                            self.input_field.read_only = False
+                            self._set_input_enabled(True)
                             
                             future = asyncio.get_event_loop().create_future()
                             self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
                             self.app.invalidate()
                             ans = await future
                             self.waiting_for_approval = None
-                            self.input_field.read_only = True
+                            self._set_input_enabled(False)
                             self.prompt_label.text = " User: "
                             self.log(f"[System] User selected: {ans}")
                             
@@ -281,7 +297,7 @@ class GemmaTUI:
                     self.log(f"[Error] {str(e)}")
                     break
         finally:
-            self.input_field.read_only = False
+            self._set_input_enabled(True)
             self.app.invalidate()
             self.app.layout.focus(self.input_field)
 
