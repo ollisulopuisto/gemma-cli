@@ -11,7 +11,7 @@ from datetime import datetime
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.layout.containers import HSplit, Window
+from prompt_toolkit.layout.containers import HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.key_binding import KeyBindings
@@ -98,7 +98,8 @@ class GemmaApp:
         
         # UI Components
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
-        self.input_field = TextArea(height=1, prompt=" User: ", multiline=False, focusable=True, style="class:input-area")
+        self.input_field = TextArea(height=1, multiline=False, focusable=True, style="class:input-area")
+        self.prompt_label = FormattedTextControl(" User: ")
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
         self.status_bar = Window(
@@ -107,7 +108,6 @@ class GemmaApp:
             style="class:status-bar"
         )
         
-        # Padding lines using half blocks to simulate 1/2 line height
         padding_char_top = "▄" * 500
         padding_char_bottom = "▀" * 500
         
@@ -115,7 +115,10 @@ class GemmaApp:
             HSplit([
                 self.output_field,
                 Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line"),
-                self.input_field,
+                VSplit([
+                    Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area"),
+                    self.input_field,
+                ]),
                 Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line"),
                 self.status_bar
             ]),
@@ -123,33 +126,21 @@ class GemmaApp:
         )
         
         self.kb = KeyBindings()
-        
         @self.kb.add("c-c")
         @self.kb.add("c-q")
-        def _(event):
-            event.app.exit()
+        def _(event): event.app.exit()
 
         @self.kb.add("tab")
-        def _(event):
-            event.app.layout.focus_next()
+        def _(event): event.app.layout.focus_next()
 
         @self.kb.add("enter")
         def _(event):
             content = self.input_field.text.strip()
             if not content: return
             self.input_field.text = ""
-            
             if self.waiting_for_approval:
-                cmd, resolve = self.waiting_for_approval
-                if content.lower() in ['y', 'yes', 's', 'p']:
-                    self.waiting_for_approval = None
-                    self.input_field.prompt = " User: "
-                    asyncio.create_task(resolve(content.lower()))
-                else:
-                    self.waiting_for_approval = None
-                    self.input_field.prompt = " User: "
-                    self.log("[System] Command denied.")
-                    asyncio.create_task(resolve('n'))
+                _, resolve = self.waiting_for_approval
+                asyncio.create_task(resolve(content.lower()))
             else:
                 asyncio.create_task(self.handle_input(content))
 
@@ -170,22 +161,13 @@ class GemmaApp:
         status = "THINKING..." if self.is_thinking else ("WAITING APPROVAL" if self.waiting_for_approval else "IDLE")
         color = "ansired" if self.is_thinking or self.waiting_for_approval else "ansigreen"
         dur_text = f" | Last: {self.last_duration:.2f}s" if self.last_duration > 0 else ""
-        return HTML(
-            f" User: {self.ctx['username']} | "
-            f"CWD: {os.getcwd()} | "
-            f"Sandbox: {self.sb_summary} | "
-            f"Status: <{color}>{status}</{color}>{dur_text} "
-        )
+        return HTML(f" User: {self.ctx['username']} | CWD: {os.getcwd()} | Sandbox: {self.sb_summary} | Status: <{color}>{status}</{color}>{dur_text} ")
 
     def log(self, text):
-        self.output_field.text += text + "\n"
-        self.output_field.buffer.cursor_position = len(self.output_field.text)
+        self.output_field.buffer.insert_text(text + "\n")
 
     async def handle_input(self, text):
-        if text.lower() in ["exit", "quit"]:
-            self.app.exit()
-            return
-
+        if text.lower() in ["exit", "quit"]: self.app.exit(); return
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
         
@@ -196,10 +178,7 @@ class GemmaApp:
                 content, reasoning, duration = await call_gemma_async(self.messages, self.config)
                 self.is_thinking = False
                 self.last_duration = duration
-                
-                if reasoning and self.args.show_reasoning:
-                    self.log(f"[Thought]\n{reasoning}\n")
-                
+                if reasoning and self.args.show_reasoning: self.log(f"[Thought]\n{reasoning}\n")
                 self.log(f"Gemma: {content}\n")
                 self.messages.append({"role": "assistant", "content": content})
                 
@@ -209,24 +188,22 @@ class GemmaApp:
                         obs = await run_command_async(cmd, self.config['sandbox'])
                     else:
                         self.log(f"[System] Proposed Command: {cmd}")
-                        self.input_field.prompt = f" Execute '{cmd}'? (y/n/s/p): "
-                        
+                        self.prompt_label.text = " Execute? (y/n/s/p): "
                         future = asyncio.get_event_loop().create_future()
                         self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
                         self.app.invalidate()
-                        
                         ans = await future
+                        self.waiting_for_approval = None
+                        self.prompt_label.text = " User: "
                         if ans in ['y', 's', 'p']:
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
                             obs = "User denied execution."
                     
                     self.messages.append({"role": "user", "content": f"Observation:\n{obs}"})
-                    if self.args.show_output:
-                        self.log(f"[Tool Output]\n{obs}\n")
+                    if self.args.show_output: self.log(f"[Tool Output]\n{obs}\n")
                     continue
-                else:
-                    break
+                else: break
             except Exception as e:
                 self.is_thinking = False
                 self.log(f"[Error] {str(e)}")
@@ -236,7 +213,7 @@ class GemmaApp:
                 self.app.layout.focus(self.input_field)
 
     async def run(self):
-        self.log(f"Gemma CLI Agent started. CWD: {os.getcwd()}")
+        self.log(f"Gemma CLI Agent started. CWD: {os.getcwd()}\n")
         await self.app.run_async()
 
 async def main_async():
@@ -250,20 +227,14 @@ async def main_async():
     parser.add_argument("--allow-path", action="append")
     parser.add_argument("--skill", action="append")
     args = parser.parse_args()
-
     config = load_config(args.config)
-    if not config:
-        print(f"Error: Config not found.")
-        return
-
-    # Overrides
+    if not config: print("Error: Config not found."); return
     if args.no_sandbox: config['sandbox']['enabled'] = False
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
         config['sandbox']['enabled'] = (args.sandbox != "off")
-    
     ctx = get_system_context()
-    skills_text, skill_files = get_skills_context(config)
+    skills_text, _ = get_skills_context(config)
     
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
 Current Context (Sniffed from System):
@@ -278,7 +249,6 @@ Current Context (Sniffed from System):
 SPECIAL TOOLS (via python gemma_utils.py):
 1. **Smarter Editing**: To edit a file precisely, use:
    ```tool_code
-   # Prepare old.txt and new.txt with EXACT content, then:
    python gemma_utils.py edit path/to/file old.txt new.txt
    ```
 2. **Sub-agents**: To delegate a complex sub-task to another agent:
@@ -291,20 +261,18 @@ SPECIAL TOOLS (via python gemma_utils.py):
    ```
 
 RULES:
-1. You have REAL-TIME capabilities. If asked for the time, weather (via curl), system stats, or file info, USE A TOOL.
-2. DO NOT say "I am a language model" or "I don't have access to real-time info". You HAVE access via the shell.
-3. To use a tool, you MUST output a code block like this:
+1. You have REAL-TIME capabilities. USE A TOOL for system info.
+2. DO NOT say "I am a language model". You HAVE access via the shell.
+3. To use a tool, you MUST output:
 ```tool_code
-date
+command
 ```
-4. After receiving an "Observation:", analyze the output and provide the final answer or next command.
-5. Always explain your reasoning briefly before a tool call."""
+4. After receiving an "Observation:", provide the final answer or next command.
+5. Always explain reasoning briefly before a tool call."""
 
     app = GemmaApp(config, args, ctx, system_prompt)
     await app.run()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main_async())
-    except KeyboardInterrupt:
-        pass
+    try: asyncio.run(main_async())
+    except KeyboardInterrupt: pass
