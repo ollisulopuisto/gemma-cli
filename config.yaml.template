@@ -34,3 +34,9 @@ sandbox:
   # Example: - "python-patterns"
   active_skills:
     - "bash-linux"
+
+# Logging Settings
+# If enabled, all session output (User, Gemma, System) is saved to the specified file.
+logging:
+  enabled: true
+  path: "gemma_chat.log"

@@ -96,6 +96,10 @@ class GemmaApp:
         self.messages = [{"role": "system", "content": system_prompt}]
         self.waiting_for_approval = None 
         
+        # Logging
+        self.log_path = args.log_file or config.get('logging', {}).get('path', 'gemma_chat.log')
+        self.logging_enabled = config.get('logging', {}).get('enabled', True)
+        
         # Spinner state
         self.spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         self.spinner_idx = 0
@@ -160,8 +164,6 @@ class GemmaApp:
                 'status-bar': 'bg:#000000 #ffffff',
             })
         )
-        
-        # Start background tasks
         asyncio.create_task(self._spinner_loop())
 
     async def _spinner_loop(self):
@@ -182,7 +184,6 @@ class GemmaApp:
         else:
             status = "IDLE"
             color = "ansigreen"
-            
         dur_text = f" | Last: {self.last_duration:.2f}s" if self.last_duration > 0 else ""
         return HTML(f" User: {self.ctx['username']} | CWD: {os.getcwd()} | Sandbox: {self.sb_summary} | Status: <{color}>{status}</{color}>{dur_text} ")
 
@@ -190,6 +191,10 @@ class GemmaApp:
         self.output_field.read_only = False
         self.output_field.buffer.insert_text(text + "\n")
         self.output_field.read_only = True
+        
+        if self.logging_enabled:
+            with open(self.log_path, 'a', encoding='utf-8') as f:
+                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {strip_ansi(text)}\n")
 
     async def handle_input(self, text):
         if text.lower() in ["exit", "quit"]: self.app.exit(); return
@@ -245,6 +250,8 @@ class GemmaApp:
 async def main_async():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--log-file", help="Path to log file")
+    parser.add_argument("--no-log", action="store_true", help="Disable logging")
     parser.add_argument("--show-output", action="store_true")
     parser.add_argument("--show-reasoning", action="store_true")
     parser.add_argument("--yes", action="store_true")
@@ -255,6 +262,10 @@ async def main_async():
     args = parser.parse_args()
     config = load_config(args.config)
     if not config: print("Error: Config not found."); return
+    
+    if args.no_log:
+        config.setdefault('logging', {})['enabled'] = False
+    
     if args.no_sandbox: config['sandbox']['enabled'] = False
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
@@ -289,12 +300,13 @@ SPECIAL TOOLS (via python gemma_utils.py):
 RULES:
 1. You have REAL-TIME capabilities. USE A TOOL for system info.
 2. DO NOT say "I am a language model". You HAVE access via the shell.
-3. To use a tool, you MUST output:
+3. BE CONCISE. Do not repeat previous observations or reasoning steps unless requested.
+4. To use a tool, you MUST output:
 ```tool_code
 command
 ```
-4. After receiving an "Observation:", provide the final answer or next command.
-5. Always explain reasoning briefly before a tool call."""
+5. After receiving an "Observation:", provide the final answer or next command.
+6. Always explain reasoning briefly before a tool call."""
 
     app = GemmaApp(config, args, ctx, system_prompt)
     await app.run()
