@@ -14,13 +14,29 @@ from rich.markdown import Markdown
 from rich.prompt import Confirm
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.completion import PathCompleter
+from prompt_toolkit.completion import Completer, PathCompleter, ThreadedCompleter
+from prompt_toolkit.document import Document
 from prompt_toolkit.styles import Style
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
 session_whitelist = set()
+
+class WordPathCompleter(Completer):
+    """Wraps PathCompleter to only complete the current word under the cursor."""
+    def __init__(self, **kwargs):
+        self.path_completer = PathCompleter(**kwargs)
+
+    def get_completions(self, document, complete_event):
+        # Get the word before the cursor
+        word_before_cursor = document.get_word_before_cursor(word_before_cursor_re=re.compile(r'[^\s]+'))
+        
+        # Only trigger if it looks like a path (starts with . or ~ or contains /)
+        if word_before_cursor.startswith('.') or word_before_cursor.startswith('~') or '/' in word_before_cursor:
+            # Create a dummy document containing only the current word to fool PathCompleter
+            fake_doc = Document(word_before_cursor, cursor_position=len(word_before_cursor))
+            yield from self.path_completer.get_completions(fake_doc, complete_event)
 
 def load_config(config_path):
     if not os.path.exists(config_path):
@@ -159,9 +175,12 @@ date
     history_file = os.path.expanduser("~/.gemma_history")
     session = PromptSession(
         history=FileHistory(history_file),
-        completer=PathCompleter(expanduser=True),
+        completer=ThreadedCompleter(WordPathCompleter(expanduser=True)),
+        complete_while_typing=True,
         style=Style.from_dict({
             'prompt': '#00afff bold',
+            'completion-menu.completion': 'bg:#008888 #ffffff',
+            'completion-menu.completion.current': 'bg:#00aaaa #000000',
         })
     )
     
