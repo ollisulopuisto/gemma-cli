@@ -27,6 +27,16 @@ def get_system_context():
         "shell": os.environ.get("SHELL", "cmd.exe" if platform.system() == "Windows" else "/bin/sh")
     }
 
+def get_skills_context(skills_dir="skills"):
+    """Reads all markdown files in the skills directory to extend the system prompt."""
+    skills_text = ""
+    if os.path.exists(skills_dir) and os.path.isdir(skills_dir):
+        for filename in os.listdir(skills_dir):
+            if filename.endswith(".md"):
+                with open(os.path.join(skills_dir, filename), 'r', encoding='utf-8') as f:
+                    skills_text += f"\n\n--- SKILL: {filename} ---\n{f.read()}\n"
+    return skills_text
+
 def get_base_binary(command):
     """Extracts the first word/binary from a command string, ignoring pipes etc."""
     # Handle simple cases, might need more robust parsing for complex chains
