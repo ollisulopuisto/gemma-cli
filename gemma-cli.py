@@ -8,6 +8,14 @@ import os
 import yaml
 import argparse
 import time
+try:
+    import readline
+    readline.parse_and_bind("tab: complete")
+    # This enables default filename completion
+    readline.set_completer_delims(' \t\n=')
+except ImportError:
+    # Readline not available (e.g. some Windows setups without pyreadline)
+    pass
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist
 
 # Default Settings
