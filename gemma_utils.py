@@ -27,6 +27,26 @@ def get_system_context():
         "shell": os.environ.get("SHELL", "cmd.exe" if platform.system() == "Windows" else "/bin/sh")
     }
 
+def get_base_binary(command):
+    """Extracts the first word/binary from a command string, ignoring pipes etc."""
+    # Handle simple cases, might need more robust parsing for complex chains
+    first_part = command.split('|')[0].split(';')[0].split('&&')[0].strip()
+    return first_part.split()[0] if first_part else ""
+
+def update_config_whitelist(config_path, binary):
+    """Adds a binary to the persistent whitelist in config.yaml."""
+    import yaml
+    if not os.path.exists(config_path):
+        return
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    whitelist = config.setdefault('sandbox', {}).setdefault('whitelist', [])
+    if binary not in whitelist:
+        whitelist.append(binary)
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+
 def get_sandbox_command(command, sandbox_config):
     """Returns the command wrapped in an OS-specific sandbox if possible."""
     if not sandbox_config.get('enabled', True):

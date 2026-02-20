@@ -12,10 +12,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.prompt import Prompt, Confirm
-from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command
+from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist
 
 # Default Settings
 DEFAULT_CONFIG_PATH = "config.yaml"
+session_whitelist = set()
 
 def load_config(config_path):
     if not os.path.exists(config_path):
@@ -46,15 +47,35 @@ def call_gemma(messages, config):
     message = data['choices'][0]['message']
     return message.get('content', ''), message.get('reasoning_content', ''), duration
 
-def run_command(command, sandbox_config, console, show_output=False, auto_approve=False):
+def run_command(command, sandbox_config, console, config_path, show_output=False, auto_approve=False):
+    global session_whitelist
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
+    
+    binary = get_base_binary(command)
+    persistent_whitelist = sandbox_config.get('whitelist', [])
     
     label_style = "yellow" if "Sandbox" in sandbox_label else "red"
     console.print(Panel(f"[bold {label_style}]Proposed Command ({sandbox_label}):[/bold {label_style}]\n{command}", border_style=label_style))
 
-    if not auto_approve:
-        if not Confirm.ask("[bold red]Do you want to execute this command?[/bold red]", default=False):
+    # Check Whitelists
+    approved = auto_approve or binary in session_whitelist or binary in persistent_whitelist
+    
+    if not approved:
+        choices = ["y", "s", "p", "n"]
+        prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y)es, (s)ession, (p)ermanent, (n)o"
+        ans = Prompt.ask(prompt_text, choices=choices, default="n").lower()
+        
+        if ans == "n":
             return "Observation:\nUser denied execution for security reasons."
+        elif ans == "s":
+            session_whitelist.add(binary)
+            approved = True
+        elif ans == "p":
+            update_config_whitelist(config_path, binary)
+            session_whitelist.add(binary) # Also add for session to avoid reload
+            approved = True
+        else: # "y"
+            approved = True
 
     start_time = time.perf_counter()
     try:
@@ -76,7 +97,7 @@ def main():
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
-    parser.add_argument("--allow-path", action="append", help="Allow access to this path (can be used multiple times)")
+    parser.add_argument("--allow-path", action="append", help="Allow access to this path")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
     parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
@@ -150,7 +171,7 @@ date
                 
                 cmd = parse_tool_call(content)
                 if cmd:
-                    observation = run_command(cmd, config['sandbox'], console, show_output=args.show_output, auto_approve=args.yes)
+                    observation = run_command(cmd, config['sandbox'], console, args.config, show_output=args.show_output, auto_approve=args.yes)
                     messages.append({"role": "user", "content": f"Observation:\n{observation}"})
                     continue
                 else:

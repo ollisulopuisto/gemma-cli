@@ -25,3 +25,8 @@ sandbox:
     - "/private/tmp"
     - "/var/tmp"
     - "/private/var/tmp"
+  # List of binaries allowed to run without confirmation
+  whitelist:
+    - "ls"
+    - "date"
+    - "whoami"
