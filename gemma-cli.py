@@ -114,7 +114,7 @@ class GemmaApp:
         self.prompt_label = FormattedTextControl(" User: ")
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
-        # Fetch skills summary once or on update
+        # Fetch skills summary
         _, skill_files = get_skills_context(config)
         self.skills_summary = ", ".join(skill_files) if skill_files else "None"
 
@@ -127,7 +127,6 @@ class GemmaApp:
         padding_char_top = "▄" * 500
         padding_char_bottom = "▀" * 500
         
-        # Store references to windows for dynamic styling
         self.top_padding = Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line")
         self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
         self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
@@ -189,9 +188,9 @@ class GemmaApp:
                 'input-area-disabled': 'bg:#222222 #888888',
                 'padding-line': 'fg:#333333 bg:#000000',
                 'padding-line-disabled': 'fg:#222222 bg:#000000',
-                'status-bar': 'bg:#000000 #ffffff',
-                'status-label': 'ansigray bold',
-                'status-value': 'ansicyan',
+                'status-bar': 'bg:#000000',
+                'status-label': '#888888 bold',
+                'status-value': '#ffffff',
                 'status-idle': 'ansigreen',
                 'status-thinking': 'ansired',
                 'status-waiting': 'ansiyellow',
@@ -209,11 +208,11 @@ class GemmaApp:
     def get_status_text(self):
         if self.is_thinking:
             frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-            status = HTML(f'<class name="status-thinking">{frame} THINKING...</class>')
+            status = HTML(f'<style color="ansired">{frame} THINKING...</style>')
         elif self.waiting_for_approval:
-            status = HTML('<class name="status-waiting">WAITING APPROVAL</class>')
+            status = HTML('<style color="ansiyellow">WAITING APPROVAL</style>')
         else:
-            status = HTML('<class name="status-idle">IDLE (type /help for commands)</class>')
+            status = HTML('<style color="ansigreen">IDLE (type /help)</style>')
             
         dur_text = HTML(f' | <class name="status-label">Last:</class> <class name="status-value">{self.last_duration:.2f}s</class>') if self.last_duration > 0 else ""
         
@@ -238,7 +237,6 @@ class GemmaApp:
         self.input_field.read_only = not enabled
         style = "class:input-area" if enabled else "class:input-area-disabled"
         padding_style = "class:padding-line" if enabled else "class:padding-line-disabled"
-        
         self.input_field.style = style
         self.top_padding.style = padding_style
         self.bottom_padding.style = padding_style
@@ -258,8 +256,7 @@ class GemmaApp:
                 self.log("\n[System] Available commands:")
                 self.log(" /help  - Show this help message")
                 self.log(" /clear - Clear the chat log")
-                self.log(" /exit  - Exit the application")
-                self.log(" /quit  - Exit the application\n")
+                self.log(" /exit  - Exit the application\n")
             else: self.log(f"[System] Unknown command: {text}")
             return
 
@@ -283,7 +280,6 @@ class GemmaApp:
                         binaries = get_all_binaries(cmd)
                         persistent_whitelist = self.config.get('sandbox', {}).get('whitelist', [])
                         all_approved = self.args.yes or all(b in session_whitelist or b in persistent_whitelist for b in binaries)
-                        
                         if all_approved:
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:

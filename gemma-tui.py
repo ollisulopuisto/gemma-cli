@@ -187,9 +187,9 @@ class GemmaTUI:
                 'input-area-disabled': 'bg:#222222 #888888',
                 'padding-line': 'fg:#333333 bg:#000000',
                 'padding-line-disabled': 'fg:#222222 bg:#000000',
-                'status-bar': 'bg:#000000 #ffffff',
-                'status-label': 'ansigray bold',
-                'status-value': 'ansicyan',
+                'status-bar': 'bg:#000000',
+                'status-label': '#888888 bold',
+                'status-value': '#ffffff',
                 'status-idle': 'ansigreen',
                 'status-thinking': 'ansired',
                 'status-waiting': 'ansiyellow',
@@ -207,11 +207,11 @@ class GemmaTUI:
     def get_status_text(self):
         if self.is_thinking:
             frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-            status = HTML(f'<class name="status-thinking">{frame} THINKING...</class>')
+            status = HTML(f'<style color="ansired">{frame} THINKING...</style>')
         elif self.waiting_for_approval:
-            status = HTML('<class name="status-waiting">WAITING APPROVAL</class>')
+            status = HTML('<style color="ansiyellow">WAITING APPROVAL</style>')
         else:
-            status = HTML('<class name="status-idle">IDLE (type /help for commands)</class>')
+            status = HTML('<style color="ansigreen">IDLE (type /help)</style>')
             
         dur_text = HTML(f' | <class name="status-label">Last:</class> <class name="status-value">{self.last_duration:.2f}s</class>') if self.last_duration > 0 else ""
         
@@ -255,8 +255,7 @@ class GemmaTUI:
                 self.log("\n[System] Available commands:")
                 self.log(" /help  - Show this help message")
                 self.log(" /clear - Clear the chat log")
-                self.log(" /exit  - Exit the application")
-                self.log(" /quit  - Exit the application\n")
+                self.log(" /exit  - Exit the application\n")
             else: self.log(f"[System] Unknown command: {text}")
             return
 
