@@ -154,7 +154,7 @@ class GemmaTUI:
                 asyncio.create_task(self.handle_input(content))
 
         self.app = Application(
-            layout=self.layout, key_bindings=self.kb, full_screen=True, mouse_support=True,
+            layout=self.layout, key_bindings=self.kb, full_screen=True, mouse_support=False,
             style=Style.from_dict({
                 'user-label': 'ansicyan bold',
                 'gemma-label': 'ansimagenta bold',
