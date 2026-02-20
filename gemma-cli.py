@@ -110,10 +110,6 @@ class GemmaApp:
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
         self.input_field = TextArea(height=1, multiline=False, focusable=True, style="class:input-area")
         self.prompt_label = FormattedTextControl(" User: ")
-        self.input_container = VSplit([
-            Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area"),
-            self.input_field,
-        ])
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
         self.status_bar = Window(
@@ -125,12 +121,17 @@ class GemmaApp:
         padding_char_top = "▄" * 500
         padding_char_bottom = "▀" * 500
         
+        # Store references to windows for dynamic styling
+        self.top_padding = Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line")
+        self.bottom_padding = Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line")
+        self.prompt_window = Window(content=self.prompt_label, height=1, dont_extend_width=True, style="class:input-area")
+        
         self.layout = Layout(
             HSplit([
                 self.output_field,
-                Window(content=FormattedTextControl(padding_char_top), height=1, style="class:padding-line"),
-                self.input_container,
-                Window(content=FormattedTextControl(padding_char_bottom), height=1, style="class:padding-line"),
+                self.top_padding,
+                VSplit([self.prompt_window, self.input_field]),
+                self.bottom_padding,
                 self.status_bar
             ]),
             focused_element=self.input_field
@@ -147,7 +148,7 @@ class GemmaApp:
         @self.kb.add("enter")
         def _(event):
             if self.is_thinking and not self.waiting_for_approval:
-                return # Block enter while thinking
+                return 
             content = self.input_field.text.strip()
             if not content: return
             self.input_field.text = ""
@@ -198,7 +199,6 @@ class GemmaApp:
         self.output_field.read_only = False
         self.output_field.buffer.insert_text(text + "\n")
         self.output_field.read_only = True
-        
         if self.logging_enabled:
             with open(self.log_path, 'a', encoding='utf-8') as f:
                 f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {strip_ansi(text)}\n")
@@ -209,21 +209,15 @@ class GemmaApp:
         padding_style = "class:padding-line" if enabled else "class:padding-line-disabled"
         
         self.input_field.style = style
-        # Update container and padding children styles
-        for window in self.layout.get_visible_windows():
-            if window.style == "class:input-area" or window.style == "class:input-area-disabled":
-                window.style = style
-            elif window.style == "class:padding-line" or window.style == "class:padding-line-disabled":
-                window.style = padding_style
+        self.top_padding.style = padding_style
+        self.bottom_padding.style = padding_style
+        self.prompt_window.style = style
 
     async def handle_input(self, text):
         global session_whitelist
-        
-        # Handle Slash Commands
         if text.startswith("/"):
             cmd = text.lower().strip()
-            if cmd == "/exit" or cmd == "/quit":
-                self.app.exit()
+            if cmd == "/exit" or cmd == "/quit": self.app.exit()
             elif cmd == "/clear":
                 self.output_field.read_only = False
                 self.output_field.text = ""
@@ -235,8 +229,7 @@ class GemmaApp:
                 self.log(" /clear - Clear the chat log")
                 self.log(" /exit  - Exit the application")
                 self.log(" /quit  - Exit the application\n")
-            else:
-                self.log(f"[System] Unknown command: {text}")
+            else: self.log(f"[System] Unknown command: {text}")
             return
 
         self.log(f"User: {text}\n")
@@ -267,7 +260,6 @@ class GemmaApp:
                             self.log(f"[System] Proposed Command: {cmd}")
                             self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession whitelist, [p]ersistent whitelist: "
                             self._set_input_enabled(True)
-                            
                             future = asyncio.get_event_loop().create_future()
                             self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
                             self.app.invalidate()
@@ -276,7 +268,6 @@ class GemmaApp:
                             self._set_input_enabled(False)
                             self.prompt_label.text = " User: "
                             self.log(f"[System] User selected: {ans}")
-                            
                             if ans in ['y', 's', 'p']:
                                 if ans == 's':
                                     for b in binaries: session_whitelist.add(b)
@@ -285,9 +276,7 @@ class GemmaApp:
                                         update_config_whitelist(self.args.config, b)
                                         session_whitelist.add(b)
                                 obs = await run_command_async(cmd, self.config['sandbox'])
-                            else:
-                                obs = "User denied execution."
-                        
+                            else: obs = "User denied execution."
                         self.messages.append({"role": "user", "content": f"Observation:\n{obs}"})
                         if self.args.show_output: self.log(f"[Tool Output]\n{obs}\n")
                         continue
@@ -353,14 +342,13 @@ SPECIAL TOOLS (via python gemma_utils.py):
 
 RULES:
 1. You have REAL-TIME capabilities. USE A TOOL for system info.
-2. DO NOT say "I am a language model". You HAVE access via the shell.
-3. BE CONCISE. Do not repeat previous observations or reasoning steps unless requested.
-4. To use a tool, you MUST output:
+2. BE CONCISE. Do not repeat previous observations or reasoning steps unless requested.
+3. To use a tool, output:
 ```tool_code
 command
 ```
-5. After receiving an "Observation:", provide the final answer or next command.
-6. Always explain reasoning briefly before a tool call."""
+4. After receiving an "Observation:", provide the final answer or next command.
+5. Always explain reasoning briefly before a tool call."""
     app = GemmaApp(config, args, ctx, system_prompt)
     await app.run()
 
