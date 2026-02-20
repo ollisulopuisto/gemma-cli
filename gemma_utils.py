@@ -110,10 +110,12 @@ def run_subagent(objective, config_path="config.yaml"):
         return f"Sub-agent failed: {str(e)}"
 
 def get_base_binary(command):
-    """Extracts the first word/binary from a command string."""
+    """Extracts the first word/binary from a command string, stripping common shell wrappers."""
     if not command: return ""
     # Remove leading spaces and take the first word
-    return command.strip().split()[0]
+    binary = command.strip().split()[0]
+    # Strip characters that might surround a binary in subshells or complex chains
+    return binary.strip('()[]{}&|;!<>')
 
 def get_all_binaries(command):
     """Extracts all potential binaries from a piped/chained command string."""
