@@ -85,7 +85,7 @@ class GemmaTUI:
         # Layout
         self.layout = Layout(
             HSplit([
-                Frame(self.output_field, title="Gemma 3 Local Agent TUI"),
+                self.output_field,
                 self.input_field,
                 self.status_bar,
             ]),

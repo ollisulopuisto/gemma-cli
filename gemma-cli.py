@@ -87,7 +87,7 @@ class GemmaApp:
         # Layout
         self.layout = Layout(
             HSplit([
-                Frame(self.output_field, title="Gemma CLI Chat Log"),
+                self.output_field,
                 self.input_field,
                 self.status_bar,
             ]),
