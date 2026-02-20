@@ -145,6 +145,8 @@ class GemmaApp:
 
         @self.kb.add("enter")
         def _(event):
+            if self.is_thinking and not self.waiting_for_approval:
+                return # Block enter while thinking
             content = self.input_field.text.strip()
             if not content: return
             self.input_field.text = ""
@@ -221,63 +223,67 @@ class GemmaApp:
                 self.log(f"[System] Unknown command: {text}")
             return
 
-        if text.lower() in ["exit", "quit"]: self.app.exit(); return
-        
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
         
-        while True:
-            self.is_thinking = True
-            self.app.invalidate()
-            try:
-                content, reasoning, duration = await call_gemma_async(self.messages, self.config)
-                self.is_thinking = False
-                self.last_duration = duration
-                if reasoning and self.args.show_reasoning: self.log(f"[Thought]\n{reasoning}\n")
-                self.log(f"Gemma: {content}\n")
-                self.messages.append({"role": "assistant", "content": content})
-                
-                cmd = parse_tool_call(content)
-                if cmd:
-                    binaries = get_all_binaries(cmd)
-                    persistent_whitelist = self.config.get('sandbox', {}).get('whitelist', [])
-                    all_approved = self.args.yes or all(b in session_whitelist or b in persistent_whitelist for b in binaries)
+        self.input_field.read_only = True
+        try:
+            while True:
+                self.is_thinking = True
+                self.app.invalidate()
+                try:
+                    content, reasoning, duration = await call_gemma_async(self.messages, self.config)
+                    self.is_thinking = False
+                    self.last_duration = duration
+                    if reasoning and self.args.show_reasoning: self.log(f"[Thought]\n{reasoning}\n")
+                    self.log(f"Gemma: {content}\n")
+                    self.messages.append({"role": "assistant", "content": content})
                     
-                    if all_approved:
-                        obs = await run_command_async(cmd, self.config['sandbox'])
-                    else:
-                        self.log(f"[System] Proposed Command: {cmd}")
-                        self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession whitelist, [p]ersistent whitelist: "
-                        future = asyncio.get_event_loop().create_future()
-                        self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
-                        self.app.invalidate()
-                        ans = await future
-                        self.waiting_for_approval = None
-                        self.prompt_label.text = " User: "
-                        self.log(f"[System] User selected: {ans}")
+                    cmd = parse_tool_call(content)
+                    if cmd:
+                        binaries = get_all_binaries(cmd)
+                        persistent_whitelist = self.config.get('sandbox', {}).get('whitelist', [])
+                        all_approved = self.args.yes or all(b in session_whitelist or b in persistent_whitelist for b in binaries)
                         
-                        if ans in ['y', 's', 'p']:
-                            if ans == 's':
-                                for b in binaries: session_whitelist.add(b)
-                            elif ans == 'p':
-                                for b in binaries:
-                                    update_config_whitelist(self.args.config, b)
-                                    session_whitelist.add(b)
+                        if all_approved:
                             obs = await run_command_async(cmd, self.config['sandbox'])
                         else:
-                            obs = "User denied execution."
-                    
-                    self.messages.append({"role": "user", "content": f"Observation:\n{obs}"})
-                    if self.args.show_output: self.log(f"[Tool Output]\n{obs}\n")
-                    continue
-                else: break
-            except Exception as e:
-                self.is_thinking = False
-                self.log(f"[Error] {str(e)}")
-                break
-            finally:
-                self.app.invalidate()
-                self.app.layout.focus(self.input_field)
+                            self.log(f"[System] Proposed Command: {cmd}")
+                            self.prompt_label.text = " Execute? [y]es, [n]o, [s]ession whitelist, [p]ersistent whitelist: "
+                            self.input_field.read_only = False # Allow typing approval
+                            
+                            future = asyncio.get_event_loop().create_future()
+                            self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
+                            self.app.invalidate()
+                            ans = await future
+                            self.waiting_for_approval = None
+                            self.input_field.read_only = True # Block again
+                            self.prompt_label.text = " User: "
+                            self.log(f"[System] User selected: {ans}")
+                            
+                            if ans in ['y', 's', 'p']:
+                                if ans == 's':
+                                    for b in binaries: session_whitelist.add(b)
+                                elif ans == 'p':
+                                    for b in binaries:
+                                        update_config_whitelist(self.args.config, b)
+                                        session_whitelist.add(b)
+                                obs = await run_command_async(cmd, self.config['sandbox'])
+                            else:
+                                obs = "User denied execution."
+                        
+                        self.messages.append({"role": "user", "content": f"Observation:\n{obs}"})
+                        if self.args.show_output: self.log(f"[Tool Output]\n{obs}\n")
+                        continue
+                    else: break
+                except Exception as e:
+                    self.is_thinking = False
+                    self.log(f"[Error] {str(e)}")
+                    break
+        finally:
+            self.input_field.read_only = False
+            self.app.invalidate()
+            self.app.layout.focus(self.input_field)
 
     async def run(self):
         self.log(f"Gemma CLI Agent started. CWD: {os.getcwd()}\n")
@@ -298,17 +304,13 @@ async def main_async():
     args = parser.parse_args()
     config = load_config(args.config)
     if not config: print("Error: Config not found."); return
-    
-    if args.no_log:
-        config.setdefault('logging', {})['enabled'] = False
-    
+    if args.no_log: config.setdefault('logging', {})['enabled'] = False
     if args.no_sandbox: config['sandbox']['enabled'] = False
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
         config['sandbox']['enabled'] = (args.sandbox != "off")
     ctx = get_system_context()
     skills_text, _ = get_skills_context(config)
-    
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
 Current Context (Sniffed from System):
 - OS: {ctx['os']} ({ctx['os_release']})
@@ -343,7 +345,6 @@ command
 ```
 5. After receiving an "Observation:", provide the final answer or next command.
 6. Always explain reasoning briefly before a tool call."""
-
     app = GemmaApp(config, args, ctx, system_prompt)
     await app.run()
 
