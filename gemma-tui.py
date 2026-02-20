@@ -164,7 +164,9 @@ class GemmaTUI:
         return HTML(f" User: {self.ctx['username']} | CWD: {os.getcwd()} | Sandbox: {self.sb_summary} | Status: <{color}>{status}</{color}>{dur_text} ")
 
     def log(self, text):
+        self.output_field.read_only = False
         self.output_field.buffer.insert_text(text + "\n")
+        self.output_field.read_only = True
 
     async def handle_input(self, text):
         if text.lower() in ["exit", "quit"]: self.app.exit(); return
