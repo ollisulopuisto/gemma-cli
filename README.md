@@ -6,16 +6,26 @@ This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) l
 
 Gemma-CLI supports multiple ways to extend the agent's context and rules:
 
+### Identity & Personality (`IDENTITY.md`, `SOUL.md`)
+Inspired by [PicoClaw](https://github.com/sipeed/picoclaw), Gemma-CLI can now be given a persistent identity and personality:
+- **`IDENTITY.md`**: Defines the agent's technical role, name, and core capabilities.
+- **`SOUL.md`**: Defines the agent's personality, values, and interaction style.
+- **Benefit**: This separates technical instructions (tool-calling) from the agent's long-term goals and behavioral consistency.
+
 ### Project-level Context (`AGENTS.md`)
 Following the [Vercel AGENTS.md standard](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals), you can place an `AGENTS.md` file in your project root. 
 - **Persistent Context**: This file is always loaded into the system prompt.
 - **Retrieval-led Reasoning**: The tool automatically instructs Gemma to prioritize information found in this file or indexed by it.
-- **Usage**: Use it for project-specific rules, coding standards, or a "Compressed Docs Index".
+
+### Specialized Tools
+Gemma-CLI now includes built-in utility tools (via `python gemma_utils.py`):
+1.  **Smarter Editing**: An `edit_file` tool that replaces specific, unique code blocks precisely, reducing errors compared to `sed` or `echo`.
+2.  **Sub-agents**: The ability to spawn a "sub-agent" to handle a narrow sub-task (e.g., "write tests for this function") without cluttering the main context.
+3.  **Notifications**: Integration with Slack/Discord webhooks to notify the user when long-running tasks are complete.
 
 ### Skills System
 - **Local Skills**: All `.md` files in the `skills/` folder are loaded at startup.
 - **Global Skills**: Supports the "standard" `~/.agent/skills/skills/` directory.
-- **Activation**: To use a global skill, add its folder name to the `active_skills` list in your `config.yaml`.
 
 ## 🛡️ Security Features
 
@@ -23,7 +33,7 @@ Following the [Vercel AGENTS.md standard](https://vercel.com/blog/agents-md-outp
 
 1.  **Human-in-the-loop (HITL)**: By default, the tool will **always ask for your confirmation** before executing any shell command.
 2.  **macOS Sandboxing**: On macOS, commands are wrapped in `sandbox-exec` (Seatbelt) to restrict file system and network access.
-3.  **Cross-Platform Awareness**: The tool detects your OS and shell to ensure commands are appropriate for your environment.
+3.  **Reliability & Fallbacks**: The tool includes automatic retries for LLM API calls to handle transient connection issues.
 
 ## Prerequisites
 

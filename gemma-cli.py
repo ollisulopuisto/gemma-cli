@@ -40,18 +40,30 @@ def call_gemma(messages, config):
         "temperature": 0.1
     }
     auth = server.get('auth', {})
-    start_time = time.perf_counter()
-    response = requests.post(
-        server.get('url'), 
-        json=payload, 
-        auth=(auth.get('username'), auth.get('password'))
-    )
-    end_time = time.perf_counter()
-    duration = end_time - start_time
-    response.raise_for_status()
-    data = response.json()
-    message = data['choices'][0]['message']
-    return message.get('content', ''), message.get('reasoning_content', ''), duration
+    url = server.get('url')
+    
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            start_time = time.perf_counter()
+            response = requests.post(
+                url, 
+                json=payload, 
+                auth=(auth.get('username'), auth.get('password')),
+                timeout=60
+            )
+            end_time = time.perf_counter()
+            duration = end_time - start_time
+            response.raise_for_status()
+            data = response.json()
+            message = data['choices'][0]['message']
+            return message.get('content', ''), message.get('reasoning_content', ''), duration
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"\033[91mConnection error, retrying ({attempt + 1}/{max_retries})...\033[0m")
+                time.sleep(1)
+                continue
+            raise e
 
 def run_command(command, sandbox_config, config_path, show_output=False, auto_approve=False):
     global session_whitelist
@@ -128,6 +140,21 @@ Current Context (Sniffed from System):
 - Shell: {ctx['shell']}
 
 {skills_text}
+
+SPECIAL TOOLS (via python gemma_utils.py):
+1. **Smarter Editing**: To edit a file precisely, use:
+   ```tool_code
+   # Prepare old.txt and new.txt with EXACT content, then:
+   python gemma_utils.py edit path/to/file old.txt new.txt
+   ```
+2. **Sub-agents**: To delegate a complex sub-task to another agent:
+   ```tool_code
+   python gemma_utils.py subagent "Objective for the sub-agent"
+   ```
+3. **Notifications**: To send an alert to the user's configured webhook (Slack/Discord):
+   ```tool_code
+   python gemma_utils.py notify "Message to send"
+   ```
 
 RULES:
 1. You have REAL-TIME capabilities. If asked for the time, weather (via curl), system stats, or file info, USE A TOOL.

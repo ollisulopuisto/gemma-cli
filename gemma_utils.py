@@ -2,6 +2,8 @@ import re
 import os
 import platform
 import getpass
+import sys
+import subprocess
 from datetime import datetime
 
 def parse_tool_call(content):
@@ -28,28 +30,31 @@ def get_system_context():
     }
 
 def get_skills_context(config=None):
-    """Reads skills from local and global directories, and looks for AGENTS.md in CWD.
+    """Reads skills from local and global directories, and looks for priority files in CWD.
     Returns: (full_text, list_of_skill_names)
     """
     skills_text = ""
     skill_names = []
     
-    # 1. High Priority: AGENTS.md in current directory (Vercel standard)
-    if os.path.exists("AGENTS.md"):
-        with open("AGENTS.md", 'r', encoding='utf-8') as f:
-            content = f.read()
-            skills_text += f"\n\n--- PROJECT AGENT SPEC (AGENTS.md) ---\n{content}\n"
-            skill_names.append("AGENTS.md")
-            # Inject Retrieval-led reasoning instruction
-            skills_text += "\nIMPORTANT: Always prioritize retrieval-led reasoning. Consult the documentation index above before relying on pre-trained knowledge.\n"
+    # 1. High Priority: IDENTITY.md, SOUL.md, and AGENTS.md in current directory
+    priority_files = ["IDENTITY.md", "SOUL.md", "AGENTS.md"]
+    for filename in priority_files:
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                skills_text += f"\n\n--- PROJECT {filename.replace('.md', '').upper()} ---\n{content}\n"
+                skill_names.append(filename)
+                if filename == "AGENTS.md":
+                    # Inject Retrieval-led reasoning instruction
+                    skills_text += "\nIMPORTANT: Always prioritize retrieval-led reasoning. Consult the documentation index above before relying on pre-trained knowledge.\n"
 
     # 2. Local project skills/ directory
     local_dir = "skills"
     if os.path.exists(local_dir) and os.path.isdir(local_dir):
         for filename in sorted(os.listdir(local_dir)):
             if filename.endswith(".md"):
-                # Avoid double loading if AGENTS.md was moved to skills/
-                if filename == "AGENTS.md" and "AGENTS.md" in skill_names:
+                # Avoid double loading if priority files were also in skills/
+                if filename in priority_files and filename in skill_names:
                     continue
                 with open(os.path.join(local_dir, filename), 'r', encoding='utf-8') as f:
                     skills_text += f"\n\n--- LOCAL SKILL: {filename} ---\n{f.read()}\n"
@@ -69,6 +74,40 @@ def get_skills_context(config=None):
                         skill_names.append(f"global:{skill_id}")
                         
     return skills_text, skill_names
+
+def edit_file(path, old_text, new_text):
+    """Smarter file editing by replacing a specific block of text."""
+    if not os.path.exists(path):
+        return f"Error: File not found: {path}"
+    
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        if old_text not in content:
+            return "Error: old_text not found in file. Match must be exact, including whitespace."
+        
+        count = content.count(old_text)
+        if count > 1:
+            return f"Error: old_text appears {count} times. Provide more context to make the match unique."
+        
+        new_content = content.replace(old_text, new_text, 1)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        return f"Successfully edited {path}"
+    except Exception as e:
+        return f"Error editing file: {str(e)}"
+
+def run_subagent(objective, config_path="config.yaml"):
+    """Spawns a sub-agent to handle a specific sub-task."""
+    # This calls gemma-cli.py with the objective
+    cmd = [sys.executable, "gemma-cli.py", "--config", config_path, "--yes"]
+    try:
+        # We use a non-interactive pipe for the objective
+        process = subprocess.run(cmd, input=objective, text=True, capture_output=True, timeout=300)
+        return f"Sub-agent output:\n{process.stdout}\n{process.stderr}"
+    except Exception as e:
+        return f"Sub-agent failed: {str(e)}"
 
 def get_base_binary(command):
     """Extracts the first word/binary from a command string."""
@@ -117,3 +156,35 @@ def get_sandbox_command(command, sandbox_config):
         return f"sandbox-exec -p '{profile}' {command}", f"macOS {level}"
 
     return command, f"{system} (Unsandboxed)"
+
+def notify(message, webhook_url=None):
+    """Sends a notification to a webhook (Slack/Discord compatible)."""
+    if not webhook_url:
+        webhook_url = os.environ.get("GEMMA_NOTIFY_WEBHOOK")
+    
+    if not webhook_url:
+        return "Error: No webhook URL provided and GEMMA_NOTIFY_WEBHOOK not set."
+    
+    import requests
+    try:
+        payload = {"text": f"Gemma CLI Alert: {message}"}
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        response.raise_for_status()
+        return "Notification sent successfully."
+    except Exception as e:
+        return f"Error sending notification: {str(e)}"
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.exit(0)
+    
+    cmd = sys.argv[1]
+    if cmd == "edit" and len(sys.argv) >= 5:
+        path = sys.argv[2]
+        with open(sys.argv[3], 'r') as f: old = f.read()
+        with open(sys.argv[4], 'r') as f: new = f.read()
+        print(edit_file(path, old, new))
+    elif cmd == "subagent" and len(sys.argv) >= 3:
+        print(run_subagent(sys.argv[2]))
+    elif cmd == "notify" and len(sys.argv) >= 3:
+        print(notify(sys.argv[2]))
