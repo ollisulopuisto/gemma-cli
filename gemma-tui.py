@@ -11,7 +11,7 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.prompt import Prompt
+from rich.prompt import Prompt, Confirm
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command
 
 # Default Settings
@@ -41,15 +41,19 @@ def call_gemma(messages, config):
     message = data['choices'][0]['message']
     return message.get('content', ''), message.get('reasoning_content', '')
 
-def run_command(command, sandbox_config, console, show_output=False):
+def run_command(command, sandbox_config, console, show_output=False, auto_approve=False):
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
     
     label_style = "yellow" if "Sandbox" in sandbox_label else "red"
-    console.print(Panel(f"[bold {label_style}]Executing ({sandbox_label}):[/bold {label_style}] {command}", border_style=label_style))
+    console.print(Panel(f"[bold {label_style}]Proposed Command ({sandbox_label}):[/bold {label_style}]\n{command}", border_style=label_style))
+
+    # Security Check: Human-in-the-loop
+    if not auto_approve:
+        if not Confirm.ask("[bold red]Do you want to execute this command?[/bold red]", default=False):
+            return "Observation:\nUser denied execution for security reasons."
 
     start_time = time.perf_counter()
     try:
-        # shell=True is needed for shell command strings on Windows/Linux
         result = subprocess.run(full_command, shell=True, capture_output=True, text=True, timeout=30)
         end_time = time.perf_counter()
         duration = end_time - start_time
@@ -64,12 +68,13 @@ def run_command(command, sandbox_config, console, show_output=False):
         return f"Error executing command: {str(e)}"
 
 def main():
-    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent TUI")
+    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent TUI - SECURITY ENHANCED")
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
+    parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -83,6 +88,9 @@ def main():
         config['sandbox']['enabled'] = True
 
     console = Console()
+    if args.yes:
+        console.print(Panel("[bold red]SECURITY WARNING: Auto-approve (--yes) is enabled. All tool commands will run without confirmation.[/bold red]", border_style="red"))
+
     ctx = get_system_context()
     
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
@@ -104,8 +112,6 @@ date
 5. Always explain your reasoning briefly before a tool call."""
 
     messages = [{"role": "system", "content": system_prompt}]
-    
-    # We display a simplified sandbox status now as it's computed per command
     sb_config = config['sandbox']
     sb_summary = sb_config['level'] if sb_config['enabled'] else "OFF"
     
@@ -137,7 +143,7 @@ date
                     
                     cmd = parse_tool_call(content)
                     if cmd:
-                        observation = run_command(cmd, config['sandbox'], console, show_output=args.show_output)
+                        observation = run_command(cmd, config['sandbox'], console, show_output=args.show_output, auto_approve=args.yes)
                         messages.append({"role": "user", "content": f"Observation:\n{observation}"})
                         continue
                     else:

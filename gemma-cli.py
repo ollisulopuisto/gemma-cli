@@ -37,11 +37,16 @@ def call_gemma(messages, config):
     message = data['choices'][0]['message']
     return message.get('content', ''), message.get('reasoning_content', '')
 
-def run_command(command, sandbox_config, show_output=False):
+def run_command(command, sandbox_config, show_output=False, auto_approve=False):
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
     
     label_color = "\033[93m" if "Sandbox" in sandbox_label else "\033[91m"
-    print(f"{label_color}[Executing ({sandbox_label}): {command}]\033[0m")
+    print(f"{label_color}[Proposed Command ({sandbox_label}): {command}]\033[0m")
+
+    if not auto_approve:
+        confirm = input("\033[91mDo you want to execute this command? (y/N): \033[0m")
+        if confirm.lower() != 'y':
+            return "Observation:\nUser denied execution for security reasons."
 
     start_time = time.perf_counter()
     try:
@@ -59,12 +64,13 @@ def run_command(command, sandbox_config, show_output=False):
         return f"Error executing command: {str(e)}"
 
 def main():
-    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent CLI")
+    parser = argparse.ArgumentParser(description="Gemma 3 Local Agent CLI - SECURITY ENHANCED")
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
+    parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -76,6 +82,9 @@ def main():
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
         config['sandbox']['enabled'] = True
+
+    if args.yes:
+        print("\033[91m[SECURITY WARNING: Auto-approve (--yes) is enabled. Commands will run without confirmation.]\033[0m")
 
     ctx = get_system_context()
     system_prompt = f"""You are a senior CLI agent with direct access to the user's computer via shell commands.
@@ -119,7 +128,7 @@ date
                 
                 cmd = parse_tool_call(content)
                 if cmd:
-                    observation = run_command(cmd, config['sandbox'], show_output=args.show_output)
+                    observation = run_command(cmd, config['sandbox'], show_output=args.show_output, auto_approve=args.yes)
                     messages.append({"role": "user", "content": f"Observation:\n{observation}"})
                     continue
                 else:

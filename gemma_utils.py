@@ -52,6 +52,7 @@ def get_sandbox_command(command, sandbox_config):
 (allow file-read* {paths_str})
 (allow file-write* {paths_str})
 (deny network*)
+(deny mach-lookup)
 """
         else:
             profile = f"""(version 1)
