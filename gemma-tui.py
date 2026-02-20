@@ -31,15 +31,20 @@ def call_gemma(messages, config):
         "temperature": 0.1
     }
     auth = server.get('auth', {})
+    
+    start_time = time.perf_counter()
     response = requests.post(
         server.get('url'), 
         json=payload, 
         auth=(auth.get('username'), auth.get('password'))
     )
+    end_time = time.perf_counter()
+    duration = end_time - start_time
+    
     response.raise_for_status()
     data = response.json()
     message = data['choices'][0]['message']
-    return message.get('content', ''), message.get('reasoning_content', '')
+    return message.get('content', ''), message.get('reasoning_content', ''), duration
 
 def run_command(command, sandbox_config, console, show_output=False, auto_approve=False):
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
@@ -47,7 +52,6 @@ def run_command(command, sandbox_config, console, show_output=False, auto_approv
     label_style = "yellow" if "Sandbox" in sandbox_label else "red"
     console.print(Panel(f"[bold {label_style}]Proposed Command ({sandbox_label}):[/bold {label_style}]\n{command}", border_style=label_style))
 
-    # Security Check: Human-in-the-loop
     if not auto_approve:
         if not Confirm.ask("[bold red]Do you want to execute this command?[/bold red]", default=False):
             return "Observation:\nUser denied execution for security reasons."
@@ -59,7 +63,7 @@ def run_command(command, sandbox_config, console, show_output=False, auto_approv
         duration = end_time - start_time
         
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        console.print(f"[dim italic]Command finished in {duration:.3f} seconds[/dim italic]")
+        console.print(f"[dim italic]Tool finished in {duration:.3f} seconds[/dim italic]")
         
         if show_output:
             console.print(Panel(output, title="Tool Output", border_style="dim"))
@@ -72,6 +76,7 @@ def main():
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
+    parser.add_argument("--allow-path", action="append", help="Allow access to this path (can be used multiple times)")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
     parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
@@ -86,6 +91,8 @@ def main():
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
         config['sandbox']['enabled'] = True
+    if args.allow_path:
+        config['sandbox'].setdefault('allowed_paths', []).extend(args.allow_path)
 
     console = Console()
     if args.yes:
@@ -129,25 +136,25 @@ date
                 break
             messages.append({"role": "user", "content": user_input})
             
-            with console.status("[bold green]Gemma is thinking...", spinner="dots"):
-                while True:
-                    content, reasoning = call_gemma(messages, config)
-                    
-                    if reasoning and args.show_reasoning:
-                        console.print("\n[italic dim cyan]Thought:[/italic dim cyan]")
-                        console.print(Panel(reasoning, border_style="dim cyan"))
+            while True:
+                with console.status("[bold green]Gemma is thinking...", spinner="dots"):
+                    content, reasoning, gemma_duration = call_gemma(messages, config)
+                
+                if reasoning and args.show_reasoning:
+                    console.print("\n[italic dim cyan]Thought:[/italic dim cyan]")
+                    console.print(Panel(reasoning, border_style="dim cyan"))
 
-                    console.print("\n[bold magenta]Gemma[/bold magenta]")
-                    console.print(Markdown(content))
-                    messages.append({"role": "assistant", "content": content})
-                    
-                    cmd = parse_tool_call(content)
-                    if cmd:
-                        observation = run_command(cmd, config['sandbox'], console, show_output=args.show_output, auto_approve=args.yes)
-                        messages.append({"role": "user", "content": f"Observation:\n{observation}"})
-                        continue
-                    else:
-                        break
+                console.print(f"\n[bold magenta]Gemma[/bold magenta] [dim](Response time: {gemma_duration:.2f}s)[/dim]")
+                console.print(Markdown(content))
+                messages.append({"role": "assistant", "content": content})
+                
+                cmd = parse_tool_call(content)
+                if cmd:
+                    observation = run_command(cmd, config['sandbox'], console, show_output=args.show_output, auto_approve=args.yes)
+                    messages.append({"role": "user", "content": f"Observation:\n{observation}"})
+                    continue
+                else:
+                    break
         except KeyboardInterrupt: break
         except EOFError: break
         except Exception as e: console.print(f"[bold red]Error:[/bold red] {e}")

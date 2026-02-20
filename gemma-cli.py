@@ -27,15 +27,20 @@ def call_gemma(messages, config):
         "temperature": 0.1
     }
     auth = server.get('auth', {})
+    
+    start_time = time.perf_counter()
     response = requests.post(
         server.get('url'), 
         json=payload, 
         auth=(auth.get('username'), auth.get('password'))
     )
+    end_time = time.perf_counter()
+    duration = end_time - start_time
+    
     response.raise_for_status()
     data = response.json()
     message = data['choices'][0]['message']
-    return message.get('content', ''), message.get('reasoning_content', '')
+    return message.get('content', ''), message.get('reasoning_content', ''), duration
 
 def run_command(command, sandbox_config, show_output=False, auto_approve=False):
     full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
@@ -55,7 +60,7 @@ def run_command(command, sandbox_config, show_output=False, auto_approve=False):
         duration = end_time - start_time
         
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        print(f"\033[3mCommand finished in {duration:.3f} seconds\033[0m")
+        print(f"\033[3mTool finished in {duration:.3f} seconds\033[0m")
         
         if show_output:
             print(f"\n--- TOOL OUTPUT ---\n{output}\n-------------------\n")
@@ -68,6 +73,7 @@ def main():
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to config.yaml")
     parser.add_argument("--sandbox", choices=["off", "permissive", "strict"], help="Override sandbox level")
     parser.add_argument("--no-sandbox", action="store_true", help="Disable sandboxing")
+    parser.add_argument("--allow-path", action="append", help="Allow access to this path (can be used multiple times)")
     parser.add_argument("--show-output", action="store_true", help="Show tool output in the UI")
     parser.add_argument("--show-reasoning", action="store_true", help="Show model thinking/reasoning if available")
     parser.add_argument("--yes", action="store_true", help="AUTO-APPROVE ALL COMMANDS (DANGEROUS!)")
@@ -82,6 +88,8 @@ def main():
     if args.sandbox:
         config['sandbox']['level'] = args.sandbox
         config['sandbox']['enabled'] = True
+    if args.allow_path:
+        config['sandbox'].setdefault('allowed_paths', []).extend(args.allow_path)
 
     if args.yes:
         print("\033[91m[SECURITY WARNING: Auto-approve (--yes) is enabled. Commands will run without confirmation.]\033[0m")
@@ -118,12 +126,12 @@ date
             messages.append({"role": "user", "content": user_input})
             
             while True:
-                content, reasoning = call_gemma(messages, config)
+                content, reasoning, gemma_duration = call_gemma(messages, config)
                 
                 if reasoning and args.show_reasoning:
                     print(f"\n\033[36mThought: {reasoning}\033[0m")
 
-                print(f"\nGemma: {content}\n")
+                print(f"\nGemma: {content} \033[90m(Response time: {gemma_duration:.2f}s)\033[0m\n")
                 messages.append({"role": "assistant", "content": content})
                 
                 cmd = parse_tool_call(content)

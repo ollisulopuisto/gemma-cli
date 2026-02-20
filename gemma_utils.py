@@ -41,7 +41,9 @@ def get_sandbox_command(command, sandbox_config):
     if system == "Darwin":
         # macOS Seatbelt
         cwd = os.getcwd()
-        allowed_paths = sandbox_config.get('allowed_paths', [])
+        raw_paths = sandbox_config.get('allowed_paths', [])
+        # Expand ~ and make absolute
+        allowed_paths = [os.path.abspath(os.path.expanduser(p)) for p in raw_paths]
         paths_str = "\n".join([f'    (subpath "{p}")' for p in allowed_paths + [cwd]])
         
         if level == "strict":
