@@ -10,11 +10,15 @@ import argparse
 import time
 try:
     import readline
+    import atexit
     readline.parse_and_bind("tab: complete")
-    # This enables default filename completion
     readline.set_completer_delims(' \t\n=')
+    # Persistent history
+    history_file = os.path.expanduser("~/.gemma_cli_history")
+    if os.path.exists(history_file):
+        readline.read_history_file(history_file)
+    atexit.register(readline.write_history_file, history_file)
 except ImportError:
-    # Readline not available (e.g. some Windows setups without pyreadline)
     pass
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist
 

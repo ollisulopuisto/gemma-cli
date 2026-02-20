@@ -11,7 +11,11 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.completion import PathCompleter
+from prompt_toolkit.styles import Style
 from gemma_utils import parse_tool_call, get_system_context, get_sandbox_command, get_base_binary, update_config_whitelist
 
 # Default Settings
@@ -62,17 +66,18 @@ def run_command(command, sandbox_config, console, config_path, show_output=False
     
     if not approved:
         choices = ["y", "s", "p", "n"]
-        prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y)es, (s)ession, (p)ermanent, (n)o"
-        ans = Prompt.ask(prompt_text, choices=choices, default="n").lower()
+        prompt_text = f"[bold red]Do you want to execute '{binary}'?[/bold red] (y/s/p/n): "
+        console.print(prompt_text, end="")
+        ans = input().lower().strip()
         
-        if ans == "n":
+        if ans not in choices or ans == "n":
             return "Observation:\nUser denied execution for security reasons."
         elif ans == "s":
             session_whitelist.add(binary)
             approved = True
         elif ans == "p":
             update_config_whitelist(config_path, binary)
-            session_whitelist.add(binary) # Also add for session to avoid reload
+            session_whitelist.add(binary)
             approved = True
         else: # "y"
             approved = True
@@ -149,10 +154,23 @@ date
         "Type your request below. Type [bold red]'exit'[/bold red] or [bold red]'quit'[/bold red] to end the session.",
         border_style="cyan"
     ))
+
+    # Setup prompt_toolkit session
+    history_file = os.path.expanduser("~/.gemma_history")
+    session = PromptSession(
+        history=FileHistory(history_file),
+        completer=PathCompleter(expanduser=True),
+        style=Style.from_dict({
+            'prompt': '#00afff bold',
+        })
+    )
     
     while True:
         try:
-            user_input = Prompt.ask("\n[bold blue]User[/bold blue]")
+            console.print("\n[bold blue]User[/bold blue]")
+            user_input = session.prompt("> ")
+            
+            if not user_input: continue
             if user_input.lower() in ["exit", "quit"]:
                 break
             messages.append({"role": "user", "content": user_input})
@@ -176,8 +194,8 @@ date
                     continue
                 else:
                     break
-        except KeyboardInterrupt: break
-        except EOFError: break
+        except KeyboardInterrupt: continue # Keep session alive on Ctrl+C
+        except EOFError: break # Exit on Ctrl+D
         except Exception as e: console.print(f"[bold red]Error:[/bold red] {e}")
 
 if __name__ == "__main__":
