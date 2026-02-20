@@ -184,7 +184,7 @@ class GemmaApp:
             status = "WAITING APPROVAL"
             color = "ansiyellow"
         else:
-            status = "IDLE"
+            status = "IDLE (type /help for commands)"
             color = "ansigreen"
         dur_text = f" | Last: {self.last_duration:.2f}s" if self.last_duration > 0 else ""
         return HTML(f" User: {self.ctx['username']} | CWD: {os.getcwd()} | Sandbox: {self.sb_summary} | Status: <{color}>{status}</{color}>{dur_text} ")
@@ -200,7 +200,29 @@ class GemmaApp:
 
     async def handle_input(self, text):
         global session_whitelist
+        
+        # Handle Slash Commands
+        if text.startswith("/"):
+            cmd = text.lower().strip()
+            if cmd == "/exit" or cmd == "/quit":
+                self.app.exit()
+            elif cmd == "/clear":
+                self.output_field.read_only = False
+                self.output_field.text = ""
+                self.output_field.read_only = True
+                self.log("[System] Chat log cleared.")
+            elif cmd == "/help":
+                self.log("\n[System] Available commands:")
+                self.log(" /help  - Show this help message")
+                self.log(" /clear - Clear the chat log")
+                self.log(" /exit  - Exit the application")
+                self.log(" /quit  - Exit the application\n")
+            else:
+                self.log(f"[System] Unknown command: {text}")
+            return
+
         if text.lower() in ["exit", "quit"]: self.app.exit(); return
+        
         self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
         
@@ -219,8 +241,6 @@ class GemmaApp:
                 if cmd:
                     binaries = get_all_binaries(cmd)
                     persistent_whitelist = self.config.get('sandbox', {}).get('whitelist', [])
-                    
-                    # Check if all binaries are already approved
                     all_approved = self.args.yes or all(b in session_whitelist or b in persistent_whitelist for b in binaries)
                     
                     if all_approved:
