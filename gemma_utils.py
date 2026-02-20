@@ -146,13 +146,42 @@ def get_sandbox_command(command, sandbox_config):
     if system == "Darwin":
         cwd = os.getcwd()
         raw_paths = sandbox_config.get('allowed_paths', [])
+        # Normalize and filter paths to avoid accidentally allowing root
         allowed_paths = [os.path.abspath(os.path.expanduser(p)) for p in raw_paths]
-        paths_str = "\n".join([f'    (subpath "{p}")' for p in allowed_paths + [cwd]])
+        all_allowed = [p for p in allowed_paths + [cwd] if p != "/"]
+        paths_str = "\n".join([f'    (subpath "{p}")' for p in all_allowed])
         
         if level == "strict":
-            profile = f"(version 1)\n(deny default)\n(allow process-exec)\n(allow sysctl-read)\n(allow file-read* {paths_str})\n(allow file-write* {paths_str})\n(deny network*)\n(deny mach-lookup)"
+            profile = f"""(version 1)
+(deny default)
+(allow process-exec)
+(allow sysctl-read)
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (subpath "/usr/share"))
+(allow file-read* (subpath "/lib"))
+(allow file-read* (subpath "/System"))
+(allow file-read* (subpath "/bin"))
+(allow file-read* (subpath "/usr/bin"))
+(allow file-read* {paths_str})
+(allow file-write* {paths_str})
+(deny network*)
+(deny mach-lookup)"""
         else:
-            profile = f"(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))\n(allow file-write* {paths_str})"
+            # Permissive: Allow reading system files, but deny writing everywhere except allowed paths.
+            # Also deny reading other users' folders by default.
+            profile = f"""(version 1)
+(allow default)
+(deny file-write* (subpath "/"))
+(allow file-write* {paths_str})
+(deny file-read* (subpath "/Users"))
+(allow file-read* {paths_str})
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (subpath "/usr/share"))
+(allow file-read* (subpath "/lib"))
+(allow file-read* (subpath "/System"))"""
+        
+        # Clean up the profile string to remove extra newlines/whitespace
+        profile = "\n".join([line.strip() for line in profile.strip().split("\n")])
         return f"sandbox-exec -p '{profile}' {command}", f"macOS {level}"
 
     return command, f"{system} (Unsandboxed)"

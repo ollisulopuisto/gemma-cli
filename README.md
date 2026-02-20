@@ -105,9 +105,9 @@ Depending on your Mac's Unified Memory, choose the appropriate model size:
 The tools use `config.yaml` for settings and secrets.
 
 ### Sandboxing Levels
-- **`permissive`** (Default): Allows full read access, but restricts writes to the current project directory and `/tmp`.
-- **`strict`**: Restricts both read and write access EXCLUSIVELY to the current project directory. **Disables network access** and mach-lookup on macOS.
-- **`off`**: No sandboxing applied.
+- **`permissive`** (Default): Allows reading system files and binaries, but **restricts all write/delete operations** exclusively to the current project and allowed paths. Also blocks reading of other users' data in `/Users`.
+- **`strict`**: Restricts both read and write access EXCLUSIVELY to the current project and specified paths (while allowing minimal system libraries for functionality). **Disables network access** and mach-lookup on macOS.
+- **`off`**: No sandboxing applied. Use only for trusted environments.
 
 ### CLI Options
 - `--config PATH`: Use a specific configuration file.
