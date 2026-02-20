@@ -2,14 +2,20 @@
 
 This tool provides a [Gemini-CLI](https://github.com/google-gemini/gemini-cli) like experience for a locally running Gemma 3 model. It allows the model to interact with your computer by executing shell commands and reading files through a ReAct (Reasoning and Acting) loop.
 
-## 💡 Skills / Agents System
+## 💡 Agents & Skills System
 
-You can extend Gemma's capabilities and personality by adding Markdown files to the `skills/` directory.
+Gemma-CLI supports multiple ways to extend the agent's context and rules:
 
+### Project-level Context (`AGENTS.md`)
+Following the [Vercel AGENTS.md standard](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals), you can place an `AGENTS.md` file in your project root. 
+- **Persistent Context**: This file is always loaded into the system prompt.
+- **Retrieval-led Reasoning**: The tool automatically instructs Gemma to prioritize information found in this file or indexed by it.
+- **Usage**: Use it for project-specific rules, coding standards, or a "Compressed Docs Index".
+
+### Skills System
 - **Local Skills**: All `.md` files in the `skills/` folder are loaded at startup.
 - **Global Skills**: Supports the "standard" `~/.agent/skills/skills/` directory.
 - **Activation**: To use a global skill, add its folder name to the `active_skills` list in your `config.yaml`.
-- **Pre-loaded**: The project comes with `skills/AGENTS.md` which defines core operational principles.
 
 ## 🛡️ Security Features
 

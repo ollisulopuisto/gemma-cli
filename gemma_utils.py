@@ -28,22 +28,34 @@ def get_system_context():
     }
 
 def get_skills_context(config=None):
-    """Reads skills from local and global directories.
+    """Reads skills from local and global directories, and looks for AGENTS.md in CWD.
     Returns: (full_text, list_of_skill_names)
     """
     skills_text = ""
     skill_names = []
     
-    # 1. Local project skills
+    # 1. High Priority: AGENTS.md in current directory (Vercel standard)
+    if os.path.exists("AGENTS.md"):
+        with open("AGENTS.md", 'r', encoding='utf-8') as f:
+            content = f.read()
+            skills_text += f"\n\n--- PROJECT AGENT SPEC (AGENTS.md) ---\n{content}\n"
+            skill_names.append("AGENTS.md")
+            # Inject Retrieval-led reasoning instruction
+            skills_text += "\nIMPORTANT: Always prioritize retrieval-led reasoning. Consult the documentation index above before relying on pre-trained knowledge.\n"
+
+    # 2. Local project skills/ directory
     local_dir = "skills"
     if os.path.exists(local_dir) and os.path.isdir(local_dir):
         for filename in sorted(os.listdir(local_dir)):
             if filename.endswith(".md"):
+                # Avoid double loading if AGENTS.md was moved to skills/
+                if filename == "AGENTS.md" and "AGENTS.md" in skill_names:
+                    continue
                 with open(os.path.join(local_dir, filename), 'r', encoding='utf-8') as f:
                     skills_text += f"\n\n--- LOCAL SKILL: {filename} ---\n{f.read()}\n"
                     skill_names.append(f"local:{filename}")
 
-    # 2. Global agent skills (~/.agent/skills/skills/)
+    # 3. Global agent skills (~/.agent/skills/skills/)
     if config:
         active_globals = config.get('sandbox', {}).get('active_skills', [])
         global_base = os.path.expanduser("~/.agent/skills/skills")
