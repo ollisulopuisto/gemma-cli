@@ -140,7 +140,7 @@ class GemmaTUI:
             self.input_field.text = ""
             if self.waiting_for_approval:
                 _, resolve = self.waiting_for_approval
-                asyncio.create_task(resolve(content.lower()))
+                resolve(content.lower())
             else:
                 asyncio.create_task(self.handle_input(content))
 
