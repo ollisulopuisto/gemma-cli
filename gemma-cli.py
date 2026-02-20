@@ -6,6 +6,7 @@ import os
 import yaml
 import argparse
 import sys
+import re
 from datetime import datetime
 
 from prompt_toolkit.application import Application
@@ -14,10 +15,22 @@ from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import HTML, ANSI
 from prompt_toolkit.widgets import TextArea, Frame
 from prompt_toolkit.styles import Style
 from prompt_toolkit.lexers import Lexer
+
+from gemma_utils import (
+    parse_tool_call, get_system_context, get_sandbox_command, 
+    get_all_binaries, update_config_whitelist, get_skills_context
+)
+
+# --- Utilities ---
+
+def strip_ansi(text):
+    """Removes ANSI escape sequences from a string."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 class ChatLexer(Lexer):
     """Simple lexer to colorize chat lines based on prefixes."""
@@ -28,7 +41,7 @@ class ChatLexer(Lexer):
                 return [("class:user-label", "User:"), ("", line[5:])]
             elif line.startswith("Gemma:"):
                 return [("class:gemma-label", "Gemma:"), ("", line[6:])]
-            elif line.startswith("[System]") or line.startswith("[Tool Output]") or line.startswith("[Error]") or line.startswith("[STDOUT]"):
+            elif line.startswith("[System]") or line.startswith("[Tool Output]") or line.startswith("[Error]"):
                 return [("class:system-label", line)]
             elif line.startswith("[Thought]"):
                 return [("class:thought-label", line)]
@@ -60,18 +73,14 @@ async def call_gemma_async(messages, config):
         message = data['choices'][0]['message']
         return message.get('content', ''), message.get('reasoning_content', '')
 
-async def run_command_async(command, sandbox_config, config_path, log_func, auto_approve=False):
-    full_command, sandbox_label = get_sandbox_command(command, sandbox_config)
-    # Note: In this TUI mode, we assume user either auto-approves or we'd need a complex modal.
-    # For now, we'll log the command and execute it if permissive.
-    log_func(f"\n[STDOUT] Executing: {command} ({sandbox_label})\n")
-    
+async def run_command_async(command, sandbox_config):
+    full_command, _ = get_sandbox_command(command, sandbox_config)
     process = await asyncio.create_subprocess_shell(
         full_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     stdout, stderr = await process.communicate()
     output = f"STDOUT:\n{stdout.decode()}\nSTDERR:\n{stderr.decode()}"
-    return output
+    return strip_ansi(output)
 
 # --- TUI Application ---
 
@@ -82,54 +91,58 @@ class GemmaApp:
         self.ctx = ctx
         self.skills_summary = skills_summary
         self.is_thinking = False
-        self.messages = [{"role": "system", "content": skills_text}] # Simplified for brevity
+        self.messages = [{"role": "system", "content": skills_text}]
+        self.waiting_for_approval = None # Stores (command, callback)
         
         # UI Components
         self.output_field = TextArea(read_only=True, scrollbar=True, focusable=True, lexer=ChatLexer())
         self.input_field = TextArea(height=1, prompt="User: ", multiline=False, focusable=True)
         self.sb_summary = config['sandbox']['level'] if config['sandbox']['enabled'] else "OFF"
         
-        # Status Bar
         self.status_bar = Window(
             content=FormattedTextControl(self.get_status_text),
             height=1,
             style="reverse"
         )
         
-        # Layout
         self.layout = Layout(
-            HSplit([
-                self.output_field,
-                self.input_field,
-                self.status_bar,
-            ]),
+            HSplit([self.output_field, self.input_field, self.status_bar]),
             focused_element=self.input_field
         )
         
-        # Key Bindings
         self.kb = KeyBindings()
         
-        @self.kb.add("tab")
-        def _(event):
-            event.app.layout.focus_next()
-
         @self.kb.add("c-c")
         @self.kb.add("c-q")
         def _(event):
             event.app.exit()
 
+        @self.kb.add("tab")
+        def _(event):
+            event.app.layout.focus_next()
+
         @self.kb.add("enter")
         def _(event):
-            content = self.input_field.text
-            if content:
-                self.input_field.text = ""
+            content = self.input_field.text.strip()
+            if not content: return
+            self.input_field.text = ""
+            
+            if self.waiting_for_approval:
+                cmd, resolve = self.waiting_for_approval
+                if content.lower() in ['y', 'yes', 's', 'p']:
+                    self.waiting_for_approval = None
+                    self.input_field.prompt = "User: "
+                    asyncio.create_task(resolve(content.lower()))
+                else:
+                    self.waiting_for_approval = None
+                    self.input_field.prompt = "User: "
+                    self.log("[System] Command denied.")
+                    asyncio.create_task(resolve('n'))
+            else:
                 asyncio.create_task(self.handle_input(content))
 
         self.app = Application(
-            layout=self.layout,
-            key_bindings=self.kb,
-            full_screen=True,
-            mouse_support=True,
+            layout=self.layout, key_bindings=self.kb, full_screen=True, mouse_support=True,
             style=Style.from_dict({
                 'user-label': 'ansicyan bold',
                 'gemma-label': 'ansimagenta bold',
@@ -140,8 +153,8 @@ class GemmaApp:
         )
 
     def get_status_text(self):
-        status = "THINKING..." if self.is_thinking else "IDLE"
-        color = "red" if self.is_thinking else "green"
+        status = "THINKING..." if self.is_thinking else ("WAITING APPROVAL" if self.waiting_for_approval else "IDLE")
+        color = "ansired" if self.is_thinking or self.waiting_for_approval else "ansigreen"
         return HTML(
             f" <b>User:</b> {self.ctx['username']} | "
             f"<b>CWD:</b> {os.getcwd()} | "
@@ -151,7 +164,6 @@ class GemmaApp:
 
     def log(self, text):
         self.output_field.text += text + "\n"
-        # Auto-scroll
         self.output_field.buffer.cursor_position = len(self.output_field.text)
 
     async def handle_input(self, text):
@@ -159,7 +171,7 @@ class GemmaApp:
             self.app.exit()
             return
 
-        self.log(f"\nUser: {text}")
+        self.log(f"User: {text}\n")
         self.messages.append({"role": "user", "content": text})
         
         while True:
@@ -170,27 +182,38 @@ class GemmaApp:
                 self.is_thinking = False
                 
                 if reasoning and self.args.show_reasoning:
-                    self.log(f"\n[Reasoning]\n{reasoning}")
+                    self.log(f"[Thought]\n{reasoning}\n")
                 
-                self.log(f"\nGemma: {content}")
+                self.log(f"Gemma: {content}\n")
                 self.messages.append({"role": "assistant", "content": content})
                 
                 cmd = parse_tool_call(content)
                 if cmd:
-                    # In this version, we auto-approve for brevity or safety check here
-                    obs = await run_command_async(
-                        cmd, self.config['sandbox'], self.args.config, self.log, 
-                        auto_approve=self.args.yes
-                    )
+                    if self.args.yes:
+                        obs = await run_command_async(cmd, self.config['sandbox'])
+                    else:
+                        self.log(f"[System] Proposed Command: {cmd}")
+                        self.input_field.prompt = f"Execute '{cmd}'? (y/n/s/p): "
+                        
+                        future = asyncio.get_event_loop().create_future()
+                        self.waiting_for_approval = (cmd, lambda val: future.set_result(val))
+                        self.app.invalidate()
+                        
+                        ans = await future
+                        if ans in ['y', 's', 'p']:
+                            obs = await run_command_async(cmd, self.config['sandbox'])
+                        else:
+                            obs = "User denied execution."
+                    
                     self.messages.append({"role": "user", "content": f"Observation:\n{obs}"})
                     if self.args.show_output:
-                        self.log(f"\n[Tool Output]\n{obs}")
+                        self.log(f"[Tool Output]\n{obs}\n")
                     continue
                 else:
                     break
             except Exception as e:
                 self.is_thinking = False
-                self.log(f"\n[Error] {str(e)}")
+                self.log(f"[Error] {str(e)}")
                 break
             finally:
                 self.app.invalidate()
@@ -231,4 +254,7 @@ async def main_async():
     await app.run()
 
 if __name__ == "__main__":
-    asyncio.run(main_async())
+    try:
+        asyncio.run(main_async())
+    except KeyboardInterrupt:
+        pass
