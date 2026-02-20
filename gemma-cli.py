@@ -90,12 +90,17 @@ class GemmaApp:
                 Frame(self.output_field, title="Gemma CLI Chat Log"),
                 self.status_bar,
                 self.input_field,
-            ])
+            ]),
+            focused_element=self.input_field
         )
         
         # Key Bindings
         self.kb = KeyBindings()
         
+        @self.kb.add("tab")
+        def _(event):
+            event.app.layout.focus_next()
+
         @self.kb.add("c-c")
         @self.kb.add("c-q")
         def _(event):
@@ -174,6 +179,7 @@ class GemmaApp:
                 break
             finally:
                 self.app.invalidate()
+                self.app.layout.focus(self.input_field)
 
     async def run(self):
         self.log(f"Gemma CLI Agent started. CWD: {os.getcwd()}")
