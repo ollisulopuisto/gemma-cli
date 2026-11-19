@@ -58,24 +58,36 @@ def load_config(config_path):
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
+# Shared, long-lived HTTP client so LLM round-trips pool TCP/TLS connections
+# instead of paying a fresh handshake on every call_gemma_async invocation.
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Return a reused httpx client (created lazily on first call)."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=120.0)
+    return _http_client
+
+
 async def call_gemma_async(messages, config):
     server = config.get('server', {})
     payload = {"model": server.get('model'), "messages": messages, "temperature": 0.1}
     auth = server.get('auth', {})
     url = server.get('url')
-    
+
     start_time = asyncio.get_event_loop().time()
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            url, json=payload, 
-            auth=(auth.get('username'), auth.get('password')),
-            timeout=120.0
-        )
-        response.raise_for_status()
-        data = response.json()
-        message = data['choices'][0]['message']
-        end_time = asyncio.get_event_loop().time()
-        return message.get('content', ''), message.get('reasoning_content', ''), end_time - start_time
+    client = _get_http_client()
+    response = await client.post(
+        url, json=payload,
+        auth=(auth.get('username'), auth.get('password')),
+    )
+    response.raise_for_status()
+    data = response.json()
+    message = data['choices'][0]['message']
+    end_time = asyncio.get_event_loop().time()
+    return message.get('content', ''), message.get('reasoning_content', ''), end_time - start_time
 
 async def run_command_async(command, sandbox_config):
     full_command, _ = get_sandbox_command(command, sandbox_config)
