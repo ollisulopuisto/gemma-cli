@@ -58,24 +58,28 @@ def load_config(config_path):
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
-async def call_gemma_async(messages, config):
+async def call_gemma_async(messages, config, *, client=None):
+    # Imported callers can use separate asyncio.run invocations safely. App
+    # runs pass their own client to pool connections until the app exits.
+    if client is None:
+        async with httpx.AsyncClient(timeout=120.0) as owned_client:
+            return await call_gemma_async(messages, config, client=owned_client)
+
     server = config.get('server', {})
     payload = {"model": server.get('model'), "messages": messages, "temperature": 0.1}
     auth = server.get('auth', {})
     url = server.get('url')
-    
+
     start_time = asyncio.get_event_loop().time()
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            url, json=payload, 
-            auth=(auth.get('username'), auth.get('password')),
-            timeout=120.0
-        )
-        response.raise_for_status()
-        data = response.json()
-        message = data['choices'][0]['message']
-        end_time = asyncio.get_event_loop().time()
-        return message.get('content', ''), message.get('reasoning_content', ''), end_time - start_time
+    response = await client.post(
+        url, json=payload,
+        auth=(auth.get('username'), auth.get('password')),
+    )
+    response.raise_for_status()
+    data = response.json()
+    message = data['choices'][0]['message']
+    end_time = asyncio.get_event_loop().time()
+    return message.get('content', ''), message.get('reasoning_content', ''), end_time - start_time
 
 async def run_command_async(command, sandbox_config):
     full_command, _ = get_sandbox_command(command, sandbox_config)
@@ -93,6 +97,7 @@ session_whitelist = set()
 class GemmaTUI:
     def __init__(self, config, args, ctx, system_prompt):
         self.config = config
+        self.http_client = None
         self.args = args
         self.ctx = ctx
         self.is_thinking = False
@@ -175,7 +180,7 @@ class GemmaTUI:
                 _, resolve = self.waiting_for_approval
                 resolve(content.lower())
             else:
-                asyncio.create_task(self.handle_input(content))
+                self.app.create_background_task(self.handle_input(content))
 
         self.app = Application(
             layout=self.layout, key_bindings=self.kb, full_screen=True, mouse_support=False,
@@ -196,7 +201,6 @@ class GemmaTUI:
                 'st-idle': '#00ff00 bold',
             })
         )
-        asyncio.create_task(self._spinner_loop())
 
     async def _spinner_loop(self):
         while True:
@@ -275,7 +279,9 @@ class GemmaTUI:
                 self.is_thinking = True
                 self.app.invalidate()
                 try:
-                    content, reasoning, duration = await call_gemma_async(self.messages, self.config)
+                    content, reasoning, duration = await call_gemma_async(
+                        self.messages, self.config, client=self.http_client
+                    )
                     self.is_thinking = False
                     self.last_duration = duration
                     if reasoning and self.args.show_reasoning: self.log(f"[Thought]\n{reasoning}\n")
@@ -323,7 +329,15 @@ class GemmaTUI:
 
     async def run(self):
         self.log(f"Gemma TUI Agent started. Config: {self.args.config}\n")
-        await self.app.run_async()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            self.http_client = client
+            try:
+                self.app.create_background_task(self._spinner_loop())
+                # prompt_toolkit cancels and awaits background tasks before
+                # returning, so no model request outlives the client.
+                await self.app.run_async()
+            finally:
+                self.http_client = None
 
 async def main_async():
     parser = argparse.ArgumentParser()

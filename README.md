@@ -131,6 +131,22 @@ Run tests:
 uv run pytest
 ```
 
+### HTTP client lifetime
+
+Both entry points pool model-server connections within an application run.
+On exit, background model tasks are cancelled and awaited before the client is
+closed. Starting another run, even on another event loop, creates a fresh client.
+
+Imported `call_gemma_async(messages, config)` calls own and close a client per
+call, so separate `asyncio.run(...)` invocations are safe. To reuse connections
+across imported calls, pass `client=client` from an
+`async with httpx.AsyncClient(timeout=120.0) as client:` block on the same event
+loop. The caller owns that client's cleanup.
+
+The tests use a local HTTP/1.1 keepalive server to check socket reuse, cross-loop
+calls, and cleanup after normal exit, errors, and cancellation in both entry
+points. No model server is required.
+
 ## How it Works
 
 The tool implements a **ReAct loop**:
